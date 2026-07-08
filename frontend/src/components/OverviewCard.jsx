@@ -1,22 +1,33 @@
 function OverviewCard({ title, value, icon, theme }) {
   const { borderColor, iconBg, iconText, valueColor } = theme || {
-    borderColor: "border-t-slate-300",
-    iconBg: "bg-slate-100",
-    iconText: "text-slate-500",
-    valueColor: "text-slate-800",
+    borderColor: "border-t-slate-800",
+    iconBg: "bg-slate-800/40",
+    iconText: "text-slate-400",
+    valueColor: "text-slate-200",
   };
 
   return (
     <div
-      className={`bg-white border border-slate-200 border-t-2 ${borderColor} rounded-xl p-4 shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 flex flex-col gap-3`}
+      className={`glass-card border-t-2 ${borderColor} rounded-2xl p-6 flex flex-col justify-between min-h-[7.5rem] group hover:border-slate-800/80 transition-all duration-300`}
     >
+      
+      {/* Title + Icon */}
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{title}</span>
-        <div className={`flex items-center justify-center w-7 h-7 rounded-lg ${iconBg} ${iconText}`}>
+        <span className="text-xs font-bold text-slate-500 tracking-wide uppercase font-sans">
+          {title}
+        </span>
+        <div className={`flex items-center justify-center w-8 h-8 rounded-xl ${iconBg} ${iconText} border border-white/5 shadow-inner`}>
           {icon}
         </div>
       </div>
-      <p className={`text-2xl font-extrabold tracking-tight ${valueColor}`}>{value}</p>
+
+      {/* Value */}
+      <div className="mt-3">
+        <p className={`text-2xl font-extrabold tracking-tight ${valueColor}`}>
+          {value}
+        </p>
+      </div>
+
     </div>
   );
 }

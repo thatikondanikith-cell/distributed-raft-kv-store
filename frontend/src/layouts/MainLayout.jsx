@@ -1,17 +1,17 @@
 import Navbar from "../components/Navbar";
 import Sidebar from "../components/Sidebar";
 
-function MainLayout({ children }) {
+function MainLayout({ children, clusterHealth = "Healthy", leaderName = "Node 1" }) {
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="h-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden font-sans">
 
-      <Navbar />
+      <Navbar clusterHealth={clusterHealth} leaderName={leaderName} />
 
-      <div className="flex flex-1">
+      <div className="flex flex-1 overflow-hidden">
 
-        <Sidebar />
+        <Sidebar clusterHealth={clusterHealth} />
 
-        <main className="flex-1 bg-slate-50 pt-8 px-8 pb-8 overflow-y-auto">
+        <main className="flex-1 bg-transparent p-8 overflow-y-auto scroll-gpu">
           {children}
         </main>
 
