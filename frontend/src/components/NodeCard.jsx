@@ -7,7 +7,7 @@ function NodeCard({ id, nodeName, role, status, term, logIndex, onToggle }) {
 
   return (
     <div
-<<<<<<< Updated upstream
+
       className={`glass-card rounded-2xl p-6 flex flex-col justify-between min-h-[12.5rem] w-full transition-all duration-300 relative ${
         isOffline
           ? "bg-slate-950/40 border-rose-950/30 opacity-60 shadow-[0_8px_32px_rgba(0,0,0,0.3)]"
@@ -109,44 +109,6 @@ function NodeCard({ id, nodeName, role, status, term, logIndex, onToggle }) {
           <span className={`block text-sm font-extrabold mt-0.5 font-mono ${isOffline ? "text-slate-600" : "text-indigo-400"}`}>
             {isOffline ? "—" : logIndex}
           </span>
-=======
-      className={`bg-white border-l-4 border-y border-r border-gray-200 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow duration-200 ${
-        isLeader ? "border-l-amber-400" : "border-l-slate-300"
-      }`}
-    >
-      <div className="flex justify-between items-start mb-3">
-        <div>
-          <h3 className="text-base font-bold text-gray-900">{nodeName}</h3>
-          <span
-            className={`inline-block mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold tracking-wide ${
-              isLeader ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            {role.toUpperCase()}
-          </span>
-        </div>
-        {isLeader ? (
-          <Crown size={18} className="text-amber-500" />
-        ) : (
-          <User size={16} className="text-slate-400" />
-        )}
-      </div>
-
-      <div className="space-y-2 pt-3 border-t border-gray-100">
-        <div className="flex justify-between items-center">
-          <span className="text-xs font-medium text-gray-500">Status</span>
-          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600">
-            {status}
-          </span>
-        </div>
-        <div className="flex justify-between items-center">
-          <span className="text-xs font-medium text-gray-500">Term</span>
-          <span className="text-sm font-bold text-gray-900">{term}</span>
-        </div>
-        <div className="flex justify-between items-center">
-          <span className="text-xs font-medium text-gray-500">Log Index</span>
-          <span className="text-sm font-bold text-gray-900">{logIndex}</span>
->>>>>>> Stashed changes
         </div>
       </div>
 
