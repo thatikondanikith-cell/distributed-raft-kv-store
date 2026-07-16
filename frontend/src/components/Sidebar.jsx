@@ -7,27 +7,27 @@ import {
   AlertTriangle,
 } from "lucide-react";
 
-function Sidebar({ clusterHealth = "Healthy" }) {
+function Sidebar({ clusterHealth = "Healthy", currentPage = "Dashboard", onPageChange }) {
   const menuGroups = [
     {
       title: "Core Monitoring",
       items: [
-        { name: "Dashboard", icon: <LayoutDashboard size={15} />, active: true },
-        { name: "Node Details", icon: <Server size={15} />, active: false },
-        { name: "Log Streams", icon: <ScrollText size={15} />, active: false },
+        { name: "Dashboard", icon: <LayoutDashboard size={15} />, active: currentPage === "Dashboard" },
+        { name: "Node Details", icon: <Server size={15} />, active: currentPage === "Node Details" },
+        { name: "Log Streams", icon: <ScrollText size={15} />, active: currentPage === "Log Streams" },
       ]
     },
     {
       title: "Consensus Control",
       items: [
-        { name: "Data Operations", icon: <Database size={15} />, active: false },
-        { name: "Failure Simulation", icon: <AlertTriangle size={15} />, active: false },
+        { name: "Data Operations", icon: <Database size={15} />, active: currentPage === "Data Operations" },
+        { name: "Failure Simulation", icon: <AlertTriangle size={15} />, active: currentPage === "Failure Simulation" },
       ]
     },
     {
       title: "Cluster Management",
       items: [
-        { name: "Key-Value Store", icon: <TableProperties size={15} />, active: false },
+        { name: "Key-Value Store", icon: <TableProperties size={15} />, active: currentPage === "Key-Value Store" },
       ]
     }
   ];
@@ -59,6 +59,7 @@ function Sidebar({ clusterHealth = "Healthy" }) {
               {group.items.map((item, idx) => (
                 <div
                   key={idx}
+                  onClick={() => onPageChange && onPageChange(item.name)}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer text-xs font-semibold transition-all duration-200 relative group ${
                     item.active
                       ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/15 shadow-[0_0_20px_rgba(99,102,241,0.05)]"

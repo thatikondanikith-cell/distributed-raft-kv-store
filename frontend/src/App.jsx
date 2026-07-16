@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from "react";
 import MainLayout from "./layouts/MainLayout";
 import Dashboard from "./pages/Dashboard";
+import DataOperations from "./pages/DataOperations";
 
 function App() {
+  const [currentPage, setCurrentPage] = useState("Dashboard");
   const [nodes, setNodes] = useState([
     { id: 1, nodeName: "Node 1", role: "Leader", status: "Online", term: 18, logIndex: 584 },
     { id: 2, nodeName: "Node 2", role: "Follower", status: "Online", term: 18, logIndex: 584 },
@@ -233,16 +235,34 @@ function App() {
   }, [nodes, logActivity]);
 
   return (
-    <MainLayout clusterHealth={clusterHealth} leaderName={leaderName}>
-      <Dashboard
-        nodes={nodes}
-        activities={activities}
-        logHistory={logHistory}
-        writingState={writingState}
-        onToggleNode={handleToggleNode}
-        onTriggerWrite={handleTriggerWrite}
-        onForceElection={handleForceElection}
-      />
+    <MainLayout 
+      clusterHealth={clusterHealth} 
+      leaderName={leaderName}
+      currentPage={currentPage}
+      onPageChange={setCurrentPage}
+    >
+      {currentPage === "Dashboard" && (
+        <Dashboard
+          nodes={nodes}
+          activities={activities}
+          logHistory={logHistory}
+          writingState={writingState}
+          onToggleNode={handleToggleNode}
+          onTriggerWrite={handleTriggerWrite}
+          onForceElection={handleForceElection}
+        />
+      )}
+      {currentPage === "Data Operations" && (
+        <DataOperations />
+      )}
+      {currentPage !== "Dashboard" && currentPage !== "Data Operations" && (
+        <div className="glass-card rounded-2xl p-8 max-w-lg mx-auto mt-12 text-center border border-white/5">
+          <h2 className="text-xl font-bold text-slate-200 mb-2">Feature Under Development</h2>
+          <p className="text-slate-400 text-xs">
+            The "{currentPage}" panel is currently under development. Please check back later.
+          </p>
+        </div>
+      )}
     </MainLayout>
   );
 }

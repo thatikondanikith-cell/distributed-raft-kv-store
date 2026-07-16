@@ -1,7 +1,7 @@
 import Navbar from "../components/Navbar";
 import Sidebar from "../components/Sidebar";
 
-function MainLayout({ children, clusterHealth = "Healthy", leaderName = "Node 1" }) {
+function MainLayout({ children, clusterHealth = "Healthy", leaderName = "Node 1", currentPage = "Dashboard", onPageChange }) {
   return (
     <div className="h-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden font-sans">
 
@@ -9,7 +9,7 @@ function MainLayout({ children, clusterHealth = "Healthy", leaderName = "Node 1"
 
       <div className="flex flex-1 overflow-hidden">
 
-        <Sidebar clusterHealth={clusterHealth} />
+        <Sidebar clusterHealth={clusterHealth} currentPage={currentPage} onPageChange={onPageChange} />
 
         <main className="flex-1 bg-transparent p-8 overflow-y-auto scroll-gpu">
           {children}
