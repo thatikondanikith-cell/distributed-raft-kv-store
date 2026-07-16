@@ -1,16 +1,16 @@
 package com.raft.backend.raft.controller;
 
-import java.util.List;
-
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.raft.backend.raft.model.LogEntry;
-import com.raft.backend.raft.service.RaftNode;
+import com.raft.backend.raft.model.RaftCluster;
 import com.raft.backend.raft.service.RaftService;
 
 @RestController
+@RequestMapping("/api/raft")
 public class RaftController {
 
     private final RaftService raftService;
@@ -19,21 +19,41 @@ public class RaftController {
         this.raftService = raftService;
     }
 
-    @GetMapping("/api/raft/logs")
-    public List<LogEntry> getLogs() {
-        return raftService.getRaftNode().getLogEntries();
+    @GetMapping("/status")
+    public Object getStatus() {
+        return raftService.getRaftNode();
     }
 
-    // NEW: Make this node the leader
-    @PostMapping("/api/raft/leader")
+    @GetMapping("/cluster")
+    public RaftCluster getCluster() {
+        return raftService.getCluster();
+    }
+
+    @PostMapping("/leader")
     public String becomeLeader() {
         raftService.becomeLeader();
-        return "Node became LEADER";
+        return "Node became Leader";
     }
 
-    // NEW: View node status
-    @GetMapping("/api/raft/status")
-    public RaftNode getStatus() {
-        return raftService.getRaftNode();
+    @PostMapping("/log")
+    public String appendLog() {
+
+        LogEntry logEntry = new LogEntry(
+                raftService.getRaftNode().getCurrentTerm(),
+                "sampleKey",
+                "sampleValue"
+        );
+
+        raftService.appendLogEntry(logEntry);
+
+        return "Log Entry Added";
+    }
+
+    @PostMapping("/crash")
+    public String crashLeader() {
+
+        raftService.crashLeader();
+
+        return "Leader crashed successfully.";
     }
 }

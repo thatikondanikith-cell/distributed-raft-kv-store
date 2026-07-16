@@ -20,17 +20,17 @@ public class KeyValueService {
 
     public KeyValue saveKeyValue(KeyValue keyValue) {
 
-        // Step 1: Create a Raft log entry
+        // Step 1: Create a Raft Log Entry
         LogEntry logEntry = new LogEntry(
                 raftService.getRaftNode().getCurrentTerm(),
                 keyValue.getKey(),
-                keyValue.getValue());
+                keyValue.getValue()
+        );
 
-        // Step 2: Add it to the Raft log
+        // Step 2: Append it to the Raft Log
         raftService.appendLogEntry(logEntry);
 
-        // Step 3: For now, save directly to MySQL
-        // Later, this will happen only after a majority commit.
+        // Step 3: Save to MySQL
         return repository.save(keyValue);
     }
 }
