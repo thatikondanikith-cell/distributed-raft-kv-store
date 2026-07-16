@@ -1,27 +1,28 @@
-package com.raft.backend.entity;
+package com.raft.backend.raft.model;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+public class LogEntry {
 
-@Entity
-@Table(name = "key_value_store")
-public class KeyValue {
+    private int term;
 
-    @Id
-    @Column(name = "kv_key")
     private String key;
 
-    @Column(name = "kv_value")
     private String value;
 
-    public KeyValue() {
+    public LogEntry() {
     }
 
-    public KeyValue(String key, String value) {
+    public LogEntry(int term, String key, String value) {
+        this.term = term;
         this.key = key;
         this.value = value;
+    }
+
+    public int getTerm() {
+        return term;
+    }
+
+    public void setTerm(int term) {
+        this.term = term;
     }
 
     public String getKey() {
