@@ -7,6 +7,7 @@ function NodeCard({ id, nodeName, role, status, term, logIndex, onToggle }) {
 
   return (
     <div
+
       className={`glass-card rounded-2xl p-6 flex flex-col justify-between min-h-[12.5rem] w-full transition-all duration-300 relative ${
         isOffline
           ? "bg-slate-950/40 border-rose-950/30 opacity-60 shadow-[0_8px_32px_rgba(0,0,0,0.3)]"
