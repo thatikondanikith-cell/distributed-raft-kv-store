@@ -25,6 +25,8 @@ public class RaftNode {
 
     private long electionTimeout;
 
+    private boolean online = true;
+
     private final List<LogEntry> logEntries;
 
     public RaftNode(String nodeId) {
@@ -108,10 +110,43 @@ public class RaftNode {
     }
 
     public void addLogEntry(LogEntry logEntry) {
+
+        if (!online) {
+            return;
+        }
+
         logEntries.add(logEntry);
     }
 
     public void resetElectionTimeout() {
         electionTimeout = ThreadLocalRandom.current().nextLong(3000, 6001);
+    }
+
+    public boolean isOnline() {
+        return online;
+    }
+
+    public void setOnline(boolean online) {
+        this.online = online;
+    }
+
+    public boolean hasMatchingLog(int index, int term) {
+
+        if (index < 0) {
+            return true;
+        }
+
+        if (index >= logEntries.size()) {
+            return false;
+        }
+
+        return logEntries.get(index).getTerm() == term;
+    }
+
+    public void removeLogsFrom(int index) {
+
+        while (logEntries.size() > index) {
+            logEntries.remove(logEntries.size() - 1);
+        }
     }
 }

@@ -1,4 +1,5 @@
 package com.raft.backend.raft.service;
+import java.util.List;
 
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -6,6 +7,7 @@ import org.springframework.stereotype.Service;
 import com.raft.backend.raft.model.LogEntry;
 import com.raft.backend.raft.model.RaftCluster;
 import com.raft.backend.raft.state.NodeState;
+import com.raft.backend.service.StateMachineService;
 
 @Service
 public class RaftService {
@@ -15,8 +17,11 @@ public class RaftService {
     private RaftNode leaderNode;
 
     private boolean leaderAlive = true;
+    private final StateMachineService stateMachineService;
 
-    public RaftService() {
+    public RaftService(StateMachineService stateMachineService) {
+
+        this.stateMachineService = stateMachineService;
 
         cluster = new RaftCluster();
 
@@ -59,7 +64,7 @@ public class RaftService {
 
         for (RaftNode node : cluster.getNodes()) {
 
-            if (!node.getNodeId().equals(leaderNode.getNodeId())) {
+            if (!node.getNodeId().equals(leaderNode.getNodeId()) && node.isOnline()) {
 
                 System.out.println(
                         "\nReplicating log to " +
@@ -103,6 +108,11 @@ public class RaftService {
             System.out.println(
                     "Log Committed Successfully."
             );
+            System.out.println("Applying to State Machine...");
+
+            stateMachineService.apply(logEntry);
+
+            System.out.println("Applied Successfully.");
 
         } else {
 
@@ -131,6 +141,10 @@ public class RaftService {
 
     public void sendHeartbeat() {
 
+        if (!leaderAlive || !leaderNode.isOnline()) {
+            return;
+        }
+
         long currentTime = System.currentTimeMillis();
 
         leaderNode.setLastHeartbeatTime(currentTime);
@@ -139,7 +153,8 @@ public class RaftService {
 
         for (RaftNode node : cluster.getNodes()) {
 
-            if (!node.getNodeId().equals(leaderNode.getNodeId())) {
+            if (!node.getNodeId().equals(leaderNode.getNodeId())
+                    && node.isOnline()) {
 
                 node.setLastHeartbeatTime(currentTime);
 
@@ -157,15 +172,19 @@ public class RaftService {
     @Scheduled(fixedRate = 1000)
     public void heartbeatTask() {
 
-        if (leaderNode.getCurrentState() == NodeState.LEADER && leaderAlive) {
-            sendHeartbeat();
-        }
+        if (leaderNode.getCurrentState() == NodeState.LEADER
+        && leaderAlive
+        && leaderNode.isOnline()) {
+
+        sendHeartbeat();
+    }
 
         long currentTime = System.currentTimeMillis();
 
         for (RaftNode node : cluster.getNodes()) {
 
-            if (node.getCurrentState() == NodeState.FOLLOWER) {
+            if (node.isOnline()
+        && node.getCurrentState() == NodeState.FOLLOWER) {
 
                 long elapsed =
                         currentTime - node.getLastHeartbeatTime();
@@ -188,6 +207,10 @@ public class RaftService {
 
     public void startElection(RaftNode candidate) {
 
+        if (!candidate.isOnline()) {
+            return;
+        }
+
         candidate.resetElectionTimeout();
 
         candidate.setCurrentState(NodeState.CANDIDATE);
@@ -200,7 +223,8 @@ public class RaftService {
 
         for (RaftNode node : cluster.getNodes()) {
 
-            if (!node.getNodeId().equals(candidate.getNodeId())) {
+            if (!node.getNodeId().equals(candidate.getNodeId())
+                && node.isOnline()) {
 
                 if (node.getVotedFor() == null
                         || node.getCurrentTerm() < candidate.getCurrentTerm()) {
@@ -229,7 +253,14 @@ public class RaftService {
             );
 
             for (RaftNode node : cluster.getNodes()) {
+
                 node.setCurrentState(NodeState.FOLLOWER);
+
+                node.setVotesReceived(0);
+
+                node.setVotedFor(null);
+
+                node.resetElectionTimeout();
             }
 
             candidate.setCurrentState(NodeState.LEADER);
@@ -242,14 +273,93 @@ public class RaftService {
         }
     }
 
-    public void crashLeader() {
 
-        leaderAlive = false;
+    public void disconnectFollower(String nodeId) {
 
-        System.out.println(
-                "\n💥 " +
-                leaderNode.getNodeId() +
-                " crashed!"
-        );
+        for (RaftNode node : cluster.getNodes()) {
+
+            if (node.getNodeId().equals(nodeId)) {
+
+                node.setOnline(false);
+
+                System.out.println(nodeId + " is OFFLINE");
+
+                if (node == leaderNode) {
+
+                    leaderAlive = false;
+
+                    System.out.println("Leader has gone OFFLINE.");
+                }
+
+                return;
+            }
+        }
+    }
+
+    public void reconnectFollower(String nodeId) {
+
+        for (RaftNode node : cluster.getNodes()) {
+
+            if (node.getNodeId().equals(nodeId)) {
+
+                node.setOnline(true);
+
+                System.out.println(nodeId + " is ONLINE");
+
+                if (node != leaderNode) {
+                    synchronizeLogs(node);
+                }
+
+                return;
+            }
+        }
+    }
+
+    public void synchronizeLogs(RaftNode follower) {
+
+        System.out.println("\nSynchronizing logs with " + follower.getNodeId());
+
+        List<LogEntry> leaderLogs = leaderNode.getLogEntries();
+
+        int index = leaderLogs.size() - 1;
+
+        while (index >= 0) {
+
+            LogEntry leaderEntry = leaderLogs.get(index);
+
+            if (follower.hasMatchingLog(index, leaderEntry.getTerm())) {
+                break;
+            }
+
+            index--;
+        }
+
+        System.out.println("Last Matching Index : " + index);
+        
+        System.out.println("Removing conflicting logs...");
+
+        follower.removeLogsFrom(index + 1);
+
+        for (int i = index + 1; i < leaderLogs.size(); i++) {
+
+            LogEntry entry = leaderLogs.get(i);
+
+            follower.addLogEntry(
+                    new LogEntry(
+                            entry.getTerm(),
+                            entry.getKey(),
+                            entry.getValue()
+                    )
+            );
+
+            System.out.println(
+                    "Replicated : "
+                            + entry.getKey()
+                            + " -> "
+                            + entry.getValue()
+            );
+        }
+
+        System.out.println("Synchronization Completed.");
     }
 }

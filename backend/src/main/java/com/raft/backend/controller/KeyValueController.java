@@ -12,14 +12,17 @@ import com.raft.backend.service.KeyValueService;
 @RequestMapping("/api/kv")
 public class KeyValueController {
 
-    private final KeyValueService service;
+    private final KeyValueService keyValueService;
 
-    public KeyValueController(KeyValueService service) {
-        this.service = service;
+    public KeyValueController(KeyValueService keyValueService) {
+        this.keyValueService = keyValueService;
     }
 
-    @PostMapping
-    public KeyValue save(@RequestBody KeyValue keyValue) {
-        return service.saveKeyValue(keyValue);
+    @PostMapping("/put")
+    public String put(@RequestBody KeyValue keyValue) {
+
+        keyValueService.saveKeyValue(keyValue);
+
+        return "Request sent to Raft successfully.";
     }
 }

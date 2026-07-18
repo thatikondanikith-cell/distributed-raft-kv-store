@@ -1,6 +1,7 @@
 package com.raft.backend.raft.controller;
 
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,7 +32,9 @@ public class RaftController {
 
     @PostMapping("/leader")
     public String becomeLeader() {
+
         raftService.becomeLeader();
+
         return "Node became Leader";
     }
 
@@ -49,11 +52,21 @@ public class RaftController {
         return "Log Entry Added";
     }
 
-    @PostMapping("/crash")
-    public String crashLeader() {
+    
 
-        raftService.crashLeader();
+    @PostMapping("/offline/{nodeId}")
+    public String offline(@PathVariable String nodeId) {
 
-        return "Leader crashed successfully.";
+        raftService.disconnectFollower(nodeId);
+
+        return nodeId + " disconnected.";
+    }
+
+    @PostMapping("/online/{nodeId}")
+    public String online(@PathVariable String nodeId) {
+
+        raftService.reconnectFollower(nodeId);
+
+        return nodeId + " reconnected.";
     }
 }
