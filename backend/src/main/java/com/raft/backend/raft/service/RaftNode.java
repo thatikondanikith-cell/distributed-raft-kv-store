@@ -1,7 +1,9 @@
 package com.raft.backend.raft.service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
 import com.raft.backend.raft.model.LogEntry;
@@ -27,6 +29,10 @@ public class RaftNode {
 
     private boolean online = true;
 
+    private Map<String, Integer> nextIndex;
+
+    private Map<String, Integer> matchIndex;
+
     private final List<LogEntry> logEntries;
 
     public RaftNode(String nodeId) {
@@ -43,6 +49,8 @@ public class RaftNode {
         this.electionTimeout = ThreadLocalRandom.current().nextLong(3000, 6001);
 
         this.logEntries = new ArrayList<>();
+        this.nextIndex = new HashMap<>();
+        this.matchIndex = new HashMap<>();
     }
 
     public String getNodeId() {
@@ -148,5 +156,21 @@ public class RaftNode {
         while (logEntries.size() > index) {
             logEntries.remove(logEntries.size() - 1);
         }
+    }
+    
+    public Map<String, Integer> getNextIndex() {
+        return nextIndex;
+    }
+
+    public void setNextIndex(Map<String, Integer> nextIndex) {
+        this.nextIndex = nextIndex;
+    }
+
+    public Map<String, Integer> getMatchIndex() {
+        return matchIndex;
+    }
+
+    public void setMatchIndex(Map<String, Integer> matchIndex) {
+        this.matchIndex = matchIndex;
     }
 }

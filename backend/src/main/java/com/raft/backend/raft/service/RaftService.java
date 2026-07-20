@@ -4,8 +4,12 @@ import java.util.List;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import com.raft.backend.raft.model.AppendEntriesRequest;
+import com.raft.backend.raft.model.AppendEntriesResponse;
 import com.raft.backend.raft.model.LogEntry;
 import com.raft.backend.raft.model.RaftCluster;
+import com.raft.backend.raft.model.RequestVoteRequest;
+import com.raft.backend.raft.model.RequestVoteResponse;
 import com.raft.backend.raft.state.NodeState;
 import com.raft.backend.service.StateMachineService;
 
@@ -48,6 +52,201 @@ public class RaftService {
     // APPEND ENTRIES + MAJORITY ACK
     // ====================================================
 
+    private AppendEntriesResponse sendAppendEntries(
+            RaftNode follower,
+            AppendEntriesRequest request) {
+
+        System.out.println("\nSending AppendEntries RPC to "
+                + follower.getNodeId());
+
+        if (!follower.isOnline()) {
+
+            System.out.println(follower.getNodeId() + " is OFFLINE");
+
+            return new AppendEntriesResponse(
+                    follower.getCurrentTerm(),
+                    false
+            );
+        }
+
+       // -------------------------------
+        // Previous Log Index Validation
+        // -------------------------------
+
+        if (request.getPrevLogIndex() >= follower.getLogEntries().size()) {
+
+            System.out.println(
+                    "Rejected! Previous Log Index not found."
+            );
+
+            return new AppendEntriesResponse(
+                    follower.getCurrentTerm(),
+                    false
+            );
+        }
+
+        // -------------------------------
+        // Previous Log Term Validation
+        // -------------------------------
+
+        if (request.getPrevLogIndex() >= 0) {
+
+            int followerPrevTerm =
+                    follower.getLogEntries()
+                            .get(request.getPrevLogIndex())
+                            .getTerm();
+
+            if (followerPrevTerm != request.getPrevLogTerm()) {
+
+                System.out.println(
+                        "Rejected! Previous Log Term mismatch."
+                );
+
+                return new AppendEntriesResponse(
+                        follower.getCurrentTerm(),
+                        false
+                );
+            }
+        }
+
+        System.out.println(
+                "AppendEntries Accepted by "
+                        + follower.getNodeId()
+        );
+
+        return new AppendEntriesResponse(
+                follower.getCurrentTerm(),
+                true
+        );
+    }
+
+    private boolean replicateToFollower(RaftNode follower, LogEntry logEntry) {
+
+        while (true) {
+
+            int nextIndex = leaderNode.getNextIndex().get(follower.getNodeId());
+
+            int prevLogIndex = nextIndex - 1;
+
+            int prevLogTerm = 0;
+
+            if (prevLogIndex >= 0) {
+                prevLogTerm = leaderNode.getLogEntries()
+                        .get(prevLogIndex)
+                        .getTerm();
+            }
+
+            AppendEntriesRequest request = new AppendEntriesRequest(
+                    leaderNode.getCurrentTerm(),
+                    leaderNode.getNodeId(),
+                    prevLogIndex,
+                    prevLogTerm,
+
+                    leaderNode.getLogEntries().subList(
+                            nextIndex,
+                            leaderNode.getLogEntries().size()
+                    ),
+
+                    leaderNode.getCommitIndex()
+            );
+
+            AppendEntriesResponse response =
+                    sendAppendEntries(follower, request);
+
+            if (response.isSuccess()) {
+
+                for (LogEntry entry : request.getEntries()) {
+
+                    follower.addLogEntry(
+                            new LogEntry(
+                                    entry.getTerm(),
+                                    entry.getKey(),
+                                    entry.getValue()
+                            )
+                    );
+
+                    System.out.println(
+                            "Replicated : "
+                                    + entry.getKey()
+                                    + " -> "
+                                    + entry.getValue()
+                    );
+                }
+
+                leaderNode.getNextIndex().put(
+                        follower.getNodeId(),
+                        leaderNode.getLogEntries().size()
+                );
+                leaderNode.getMatchIndex().put(
+                        follower.getNodeId(),
+                        leaderNode.getLogEntries().size() - 1
+                );
+
+                System.out.println(
+                        follower.getNodeId() + " synchronized."
+                );
+
+                return true;
+            }
+
+            if (nextIndex == 0) {
+
+                System.out.println(
+                        "No matching log found for "
+                                + follower.getNodeId()
+                );
+
+                return false;
+            }
+
+            leaderNode.getNextIndex().put(
+                    follower.getNodeId(),
+                    nextIndex - 1
+            );
+
+            System.out.println(
+                    "Retrying with nextIndex = "
+                            + (nextIndex - 1)
+            );
+        }
+    }
+
+    private void updateCommitIndex() {
+
+        int lastLogIndex = leaderNode.getLogEntries().size() - 1;
+
+        for (int index = lastLogIndex; index > leaderNode.getCommitIndex(); index--) {
+
+            int replicatedCount = 1; // Leader itself
+
+            for (RaftNode node : cluster.getNodes()) {
+
+                if (node == leaderNode) {
+                    continue;
+                }
+
+                Integer match = leaderNode.getMatchIndex().get(node.getNodeId());
+
+                if (match != null && match >= index) {
+                    replicatedCount++;
+                }
+            }
+
+            int majority = (cluster.getNodes().size() / 2) + 1;
+
+            if (replicatedCount >= majority) {
+
+                leaderNode.setCommitIndex(index);
+
+                System.out.println(
+                        "Commit Index Updated -> " + index
+                );
+
+                break;
+            }
+        }
+    }
+
     public void appendLogEntry(LogEntry logEntry) {
 
         System.out.println("\n========== APPEND ENTRIES ==========");
@@ -64,50 +263,35 @@ public class RaftService {
 
         for (RaftNode node : cluster.getNodes()) {
 
-            if (!node.getNodeId().equals(leaderNode.getNodeId()) && node.isOnline()) {
+            if (!node.getNodeId().equals(leaderNode.getNodeId())
+                    && node.isOnline()) {
 
-                System.out.println(
-                        "\nReplicating log to " +
-                        node.getNodeId()
-                );
+                if (replicateToFollower(node, logEntry)) {
 
-                node.addLogEntry(
-                        new LogEntry(
-                                logEntry.getTerm(),
-                                logEntry.getKey(),
-                                logEntry.getValue()
-                        )
-                );
+                    ackCount++;
 
-                ackCount++;
-
-                System.out.println(
-                        node.getNodeId() +
-                        " ACK received."
-                );
+                    System.out.println(
+                            node.getNodeId() +
+                            " ACK received."
+                    );
+                }
             }
         }
 
         System.out.println("\nACK Count : " + ackCount);
 
-        int majority = (cluster.getNodes().size() / 2) + 1;
+        updateCommitIndex();
 
-        if (ackCount >= majority) {
+        if (leaderNode.getCommitIndex() ==
+                leaderNode.getLogEntries().size() - 1) {
 
             System.out.println("Majority Achieved.");
 
-            leaderNode.setCommitIndex(
-                    leaderNode.getCommitIndex() + 1
+            System.out.println(
+                    "Commit Index = "
+                            + leaderNode.getCommitIndex()
             );
 
-            System.out.println(
-                    "Commit Index = " +
-                    leaderNode.getCommitIndex()
-            );
-
-            System.out.println(
-                    "Log Committed Successfully."
-            );
             System.out.println("Applying to State Machine...");
 
             stateMachineService.apply(logEntry);
@@ -116,9 +300,7 @@ public class RaftService {
 
         } else {
 
-            System.out.println(
-                    "Majority NOT achieved."
-            );
+            System.out.println("Majority NOT achieved.");
         }
 
         System.out.println("====================================");
@@ -135,6 +317,24 @@ public class RaftService {
         }
 
         leaderNode.setCurrentState(NodeState.LEADER);
+
+        leaderNode.getNextIndex().clear();
+
+        for (RaftNode node : cluster.getNodes()) {
+
+            if (!node.getNodeId().equals(leaderNode.getNodeId())) {
+
+                leaderNode.getNextIndex().put(
+                        node.getNodeId(),
+                        leaderNode.getLogEntries().size()
+                );
+
+                leaderNode.getMatchIndex().put(
+                        node.getNodeId(),
+                        -1
+                );
+            }
+        }
 
         sendHeartbeat();
     }
@@ -205,6 +405,101 @@ public class RaftService {
         }
     }
 
+    private RequestVoteResponse sendRequestVote(
+            RaftNode follower,
+            RequestVoteRequest request) {
+
+        System.out.println(
+                "\nSending RequestVote RPC to " + follower.getNodeId()
+        );
+
+        if (!follower.isOnline()) {
+
+            System.out.println(follower.getNodeId() + " is OFFLINE");
+
+            return new RequestVoteResponse(
+                    follower.getCurrentTerm(),
+                    false
+            );
+        }
+
+        // Reject lower term
+        if (request.getTerm() < follower.getCurrentTerm()) {
+
+            System.out.println("Vote Rejected : Older Term");
+
+            return new RequestVoteResponse(
+                    follower.getCurrentTerm(),
+                    false
+            );
+        }
+
+        // Candidate last log
+        int candidateLastTerm = request.getLastLogTerm();
+        int candidateLastIndex = request.getLastLogIndex();
+
+        // Follower last log
+        int followerLastIndex = follower.getLogEntries().size() - 1;
+
+        int followerLastTerm = 0;
+
+        if (followerLastIndex >= 0) {
+            followerLastTerm = follower.getLogEntries()
+                    .get(followerLastIndex)
+                    .getTerm();
+        }
+
+        // -------------------------------
+        // Raft Log Freshness Check
+        // -------------------------------
+
+        boolean candidateLogUpToDate =
+
+                candidateLastTerm > followerLastTerm ||
+
+                (candidateLastTerm == followerLastTerm
+                        && candidateLastIndex >= followerLastIndex);
+
+        if (!candidateLogUpToDate) {
+
+            System.out.println(
+                    "Vote Rejected : Candidate log is outdated."
+            );
+
+            return new RequestVoteResponse(
+                    follower.getCurrentTerm(),
+                    false
+            );
+        }
+
+        // Already voted?
+        if (follower.getVotedFor() == null
+                || follower.getVotedFor().equals(request.getCandidateId())) {
+
+            follower.setVotedFor(request.getCandidateId());
+
+            follower.setCurrentTerm(request.getTerm());
+
+            System.out.println(
+                    follower.getNodeId()
+                            + " voted for "
+                            + request.getCandidateId()
+            );
+
+            return new RequestVoteResponse(
+                    follower.getCurrentTerm(),
+                    true
+            );
+        }
+
+        System.out.println("Vote Rejected : Already voted.");
+
+        return new RequestVoteResponse(
+                follower.getCurrentTerm(),
+                false
+        );
+    }
+
     public void startElection(RaftNode candidate) {
 
         if (!candidate.isOnline()) {
@@ -223,28 +518,40 @@ public class RaftService {
 
         for (RaftNode node : cluster.getNodes()) {
 
-            if (!node.getNodeId().equals(candidate.getNodeId())
-                && node.isOnline()) {
+            if (node == candidate || !node.isOnline()) {
+                continue;
+            }
 
-                if (node.getVotedFor() == null
-                        || node.getCurrentTerm() < candidate.getCurrentTerm()) {
+            int lastLogIndex = candidate.getLogEntries().size() - 1;
 
-                    node.setVotedFor(candidate.getNodeId());
+            int lastLogTerm = 0;
 
-                    candidate.setVotesReceived(
-                            candidate.getVotesReceived() + 1
-                    );
+            if (lastLogIndex >= 0) {
+                lastLogTerm = candidate.getLogEntries()
+                        .get(lastLogIndex)
+                        .getTerm();
+            }
 
-                    System.out.println(
-                            node.getNodeId() +
-                            " voted for " +
-                            candidate.getNodeId()
-                    );
-                }
+            RequestVoteRequest request = new RequestVoteRequest(
+                    candidate.getCurrentTerm(),
+                    candidate.getNodeId(),
+                    lastLogIndex,
+                    lastLogTerm
+            );
+
+            RequestVoteResponse response =
+                    sendRequestVote(node, request);
+
+            if (response.isVoteGranted()) {
+
+                candidate.setVotesReceived(
+                        candidate.getVotesReceived() + 1
+                );
             }
         }
 
-        if (candidate.getVotesReceived() >= 2) {
+        int majority = (cluster.getNodes().size() / 2) + 1;
+        if (candidate.getVotesReceived() >= majority) {
 
             System.out.println(
                     "\n🏆 " +
@@ -264,6 +571,18 @@ public class RaftService {
             }
 
             candidate.setCurrentState(NodeState.LEADER);
+            candidate.getNextIndex().clear();
+
+            for (RaftNode node : cluster.getNodes()) {
+
+                if (!node.getNodeId().equals(candidate.getNodeId())) {
+
+                    candidate.getNextIndex().put(
+                            node.getNodeId(),
+                            candidate.getLogEntries().size()
+                    );
+                }
+            }
 
             leaderNode = candidate;
 
@@ -362,4 +681,5 @@ public class RaftService {
 
         System.out.println("Synchronization Completed.");
     }
+
 }
