@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import MainLayout from "./layouts/MainLayout";
 import Dashboard from "./pages/Dashboard";
 import DataOperations from "./pages/DataOperations";
+import KeyValueStore from "./pages/KeyValueStore";
 
 function App() {
   const [currentPage, setCurrentPage] = useState("Dashboard");
@@ -255,7 +256,10 @@ function App() {
       {currentPage === "Data Operations" && (
         <DataOperations />
       )}
-      {currentPage !== "Dashboard" && currentPage !== "Data Operations" && (
+      {currentPage === "Key-Value Store" && (
+        <KeyValueStore />
+      )}
+      {currentPage !== "Dashboard" && currentPage !== "Data Operations" && currentPage !== "Key-Value Store" && (
         <div className="glass-card rounded-2xl p-8 max-w-lg mx-auto mt-12 text-center border border-white/5">
           <h2 className="text-xl font-bold text-slate-200 mb-2">Feature Under Development</h2>
           <p className="text-slate-400 text-xs">
