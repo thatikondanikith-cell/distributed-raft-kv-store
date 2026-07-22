@@ -1,5 +1,7 @@
 package com.raft.backend.service;
 
+import java.util.Optional;
+
 import org.springframework.stereotype.Service;
 
 import com.raft.backend.entity.KeyValue;
@@ -15,7 +17,23 @@ public class StateMachineService {
         this.repository = repository;
     }
 
+    // ==========================
+    // APPLY (PUT)
+    // ==========================
+
     public void apply(LogEntry logEntry) {
+
+        if ("__DELETE__".equals(logEntry.getValue())) {
+
+            repository.deleteById(logEntry.getKey());
+
+            System.out.println(
+                    "State Machine Deleted : "
+                            + logEntry.getKey()
+            );
+
+            return;
+        }
 
         KeyValue keyValue = new KeyValue(
                 logEntry.getKey(),
@@ -30,5 +48,22 @@ public class StateMachineService {
                         + " = "
                         + logEntry.getValue()
         );
+    }
+
+    // ==========================
+    // GET
+    // ==========================
+
+    public String getValue(String key) {
+
+        Optional<KeyValue> keyValue =
+                repository.findById(key);
+
+        if (keyValue.isPresent()) {
+
+            return keyValue.get().getValue();
+        }
+
+        return null;
     }
 }

@@ -1,5 +1,6 @@
 package com.raft.backend.raft.controller;
 
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -94,5 +95,25 @@ public class RaftController {
                 + nodeA
                 + " and "
                 + nodeB;
+    }
+
+    @GetMapping("/get/{key}")
+    public String getValue(@PathVariable String key) {
+
+        return raftService.getValue(key);
+    }
+
+    @DeleteMapping("/delete/{key}")
+    public String deleteKey(@PathVariable String key) {
+
+        LogEntry logEntry = new LogEntry(
+                raftService.getRaftNode().getCurrentTerm(),
+                key,
+                "__DELETE__"
+        );
+
+        raftService.appendLogEntry(logEntry);
+
+        return key + " scheduled for deletion.";
     }
 }

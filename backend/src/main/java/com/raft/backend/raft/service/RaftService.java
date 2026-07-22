@@ -4,6 +4,7 @@ import java.util.List;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import com.raft.backend.entity.KeyValue;
 import com.raft.backend.raft.model.AppendEntriesRequest;
 import com.raft.backend.raft.model.AppendEntriesResponse;
 import com.raft.backend.raft.model.LogEntry;
@@ -11,6 +12,7 @@ import com.raft.backend.raft.model.RaftCluster;
 import com.raft.backend.raft.model.RequestVoteRequest;
 import com.raft.backend.raft.model.RequestVoteResponse;
 import com.raft.backend.raft.state.NodeState;
+import com.raft.backend.repository.KeyValueRepository;
 import com.raft.backend.service.StateMachineService;
 
 @Service
@@ -22,10 +24,17 @@ public class RaftService {
 
     private boolean leaderAlive = true;
     private final StateMachineService stateMachineService;
+    private final KeyValueRepository repository;
 
-    public RaftService(StateMachineService stateMachineService) {
+    private static final int SNAPSHOT_THRESHOLD = 5;
+    private int lastIncludedIndex = -1;
+    private int lastIncludedTerm = 0;
+
+    public RaftService(StateMachineService stateMachineService, 
+        KeyValueRepository repository) {
 
         this.stateMachineService = stateMachineService;
+        this.repository = repository;
 
         cluster = new RaftCluster();
 
@@ -68,7 +77,7 @@ public class RaftService {
                             + follower.getNodeId());
 
             return new AppendEntriesResponse(
-                    follower.getCurrentTerm(),
+                    request.getTerm(),
                     false
             );
         }
@@ -101,7 +110,7 @@ public class RaftService {
         }
 
         // Validate previous index
-        if (request.getPrevLogIndex() >= follower.getLogEntries().size()) {
+        if (request.getPrevLogIndex() >= follower.getLogEntriesSize()) {
 
             System.out.println(
                     "Rejected! Previous Log Index not found."
@@ -116,10 +125,7 @@ public class RaftService {
         // Validate previous term
         if (request.getPrevLogIndex() >= 0) {
 
-            int followerPrevTerm =
-                    follower.getLogEntries()
-                            .get(request.getPrevLogIndex())
-                            .getTerm();
+            int followerPrevTerm = follower.getLogTerm(request.getPrevLogIndex());
 
             if (followerPrevTerm != request.getPrevLogTerm()) {
 
@@ -138,13 +144,9 @@ public class RaftService {
         // ACTUAL LOG REPLICATION
         // -------------------------------
 
+        follower.removeLogsFrom(request.getPrevLogIndex() + 1);
+
         if (!request.getEntries().isEmpty()) {
-
-            while (follower.getLogEntries().size() > request.getPrevLogIndex() + 1) {
-
-                follower.getLogEntries()
-                        .remove(follower.getLogEntries().size() - 1);
-            }
 
             for (LogEntry entry : request.getEntries()) {
 
@@ -165,14 +167,34 @@ public class RaftService {
             }
         }
 
-        follower.setCommitIndex(
-                Math.min(
-                        request.getLeaderCommit(),
-                        follower.getLogEntries().size() - 1
-                )
-        );
+        // ------------------------------------------
+        // Update Commit Index from Leader
+        // ------------------------------------------
+
+        if (request.getLeaderCommit() > follower.getCommitIndex()) {
+
+            int newCommitIndex = Math.min(
+                    request.getLeaderCommit(),
+                    follower.getLastLogIndex()
+            );
+
+            follower.setCommitIndex(newCommitIndex);
+
+            System.out.println(
+                    follower.getNodeId()
+                            + " Commit Index Updated -> "
+                            + newCommitIndex
+            );
+
+            if (newCommitIndex >= SNAPSHOT_THRESHOLD) {
+                follower.createSnapshot(newCommitIndex);
+            }
+        }
 
         follower.setLastHeartbeatTime(System.currentTimeMillis());
+
+        // Update EWMA stats BEFORE resetting the adaptive timeout
+        follower.recordHeartbeatArrival();
 
         follower.resetElectionTimeout();
 
@@ -189,23 +211,48 @@ public class RaftService {
         );
     }
 
-    private boolean replicateToFollower(RaftNode follower, LogEntry logEntry) {
+    private boolean replicateToFollower(RaftNode follower) {
 
         while (true) {
 
-            int nextIndex =
-                    leaderNode.getNextIndex().get(follower.getNodeId());
+            if (!canCommunicate(leaderNode, follower)) {
+                System.out.println("Replication blocked by Network Partition to " + follower.getNodeId());
+                return false;
+            }
+
+            int nextIndex = leaderNode.getNextIndex()
+                    .getOrDefault(
+                            follower.getNodeId(),
+                            leaderNode.getLogEntriesSize()
+                    );
 
             int prevLogIndex = nextIndex - 1;
 
             int prevLogTerm = 0;
 
-            if (prevLogIndex >= 0) {
+            if (prevLogIndex >= 0 &&
+                    prevLogIndex < leaderNode.getLogEntriesSize()) {
 
-                prevLogTerm =
-                        leaderNode.getLogEntries()
-                                .get(prevLogIndex)
-                                .getTerm();
+                prevLogTerm = leaderNode.getLogTerm(prevLogIndex);
+            }
+
+            List<LogEntry> entries = leaderNode.getLogEntriesSubList(nextIndex);
+
+            // Lagging follower / InstallSnapshot simulation
+            if (entries == null) {
+                System.out.println("Follower " + follower.getNodeId() + " is behind leader's snapshot. Syncing snapshot.");
+                follower.setLastIncludedIndex(leaderNode.getLastIncludedIndex());
+                follower.setLastIncludedTerm(leaderNode.getLastIncludedTerm());
+                follower.getLogEntries().clear();
+                for (LogEntry entry : leaderNode.getLogEntries()) {
+                    follower.getLogEntries().add(new LogEntry(entry.getTerm(), entry.getKey(), entry.getValue()));
+                }
+                follower.setCommitIndex(leaderNode.getLastIncludedIndex());
+                leaderNode.getMatchIndex().put(follower.getNodeId(), leaderNode.getLastLogIndex());
+                leaderNode.getNextIndex().put(follower.getNodeId(), leaderNode.getLogEntriesSize());
+                follower.setLastHeartbeatTime(System.currentTimeMillis());
+                follower.resetElectionTimeout();
+                return true;
             }
 
             AppendEntriesRequest request =
@@ -219,10 +266,7 @@ public class RaftService {
 
                             prevLogTerm,
 
-                            leaderNode.getLogEntries().subList(
-                                    nextIndex,
-                                    leaderNode.getLogEntries().size()
-                            ),
+                            entries,
 
                             leaderNode.getCommitIndex()
                     );
@@ -232,14 +276,14 @@ public class RaftService {
 
             if (response.isSuccess()) {
 
-                leaderNode.getNextIndex().put(
-                        follower.getNodeId(),
-                        leaderNode.getLogEntries().size()
-                );
-
                 leaderNode.getMatchIndex().put(
                         follower.getNodeId(),
-                        leaderNode.getLogEntries().size() - 1
+                        leaderNode.getLastLogIndex()
+                );
+
+                leaderNode.getNextIndex().put(
+                        follower.getNodeId(),
+                        leaderNode.getLogEntriesSize()
                 );
 
                 follower.setLastHeartbeatTime(
@@ -250,7 +294,7 @@ public class RaftService {
 
                 System.out.println(
                         follower.getNodeId()
-                                + " synchronized."
+                        + " synchronized."
                 );
 
                 return true;
@@ -262,12 +306,9 @@ public class RaftService {
 
                 leaderNode.setCurrentState(NodeState.FOLLOWER);
 
-                leaderAlive = false;
+                leaderNode.setVotedFor(null);
 
-                System.out.println(
-                        leaderNode.getNodeId()
-                                + " stepped down. Higher term discovered."
-                );
+                leaderAlive = false;
 
                 return false;
             }
@@ -276,7 +317,7 @@ public class RaftService {
 
                 System.out.println(
                         "No matching log found for "
-                                + follower.getNodeId()
+                        + follower.getNodeId()
                 );
 
                 return false;
@@ -288,15 +329,16 @@ public class RaftService {
             );
 
             System.out.println(
-                    "Retrying with nextIndex = "
-                            + (nextIndex - 1)
+                    follower.getNodeId()
+                    + " rejected AppendEntries. nextIndex -> "
+                    + (nextIndex - 1)
             );
         }
     }
 
     private void updateCommitIndex() {
 
-        int lastLogIndex = leaderNode.getLogEntries().size() - 1;
+        int lastLogIndex = leaderNode.getLastLogIndex();
 
         for (int index = lastLogIndex;
             index > leaderNode.getCommitIndex();
@@ -305,9 +347,7 @@ public class RaftService {
             // Raft Rule:
             // Only commit entries from CURRENT TERM
 
-            if (leaderNode.getLogEntries()
-                    .get(index)
-                    .getTerm() != leaderNode.getCurrentTerm()) {
+            if (leaderNode.getLogTerm(index) != leaderNode.getCurrentTerm()) {
 
                 continue;
             }
@@ -353,27 +393,26 @@ public class RaftService {
         leaderNode.addLogEntry(logEntry);
 
         System.out.println(
-                leaderNode.getNodeId() +
-                " appended log locally."
+                leaderNode.getNodeId()
+                + " appended log locally."
         );
 
-        // Leader already has the log
         int ackCount = 1;
 
         for (RaftNode node : cluster.getNodes()) {
 
-            if (!node.getNodeId().equals(leaderNode.getNodeId())
-                    && node.isOnline()) {
+            if (node == leaderNode || !node.isOnline()) {
+                continue;
+            }
 
-                if (replicateToFollower(node, logEntry)) {
+            if (replicateToFollower(node)) {
 
-                    ackCount++;
+                ackCount++;
 
-                    System.out.println(
-                            node.getNodeId() +
-                            " ACK received."
-                    );
-                }
+                System.out.println(
+                        node.getNodeId()
+                        + " ACK received."
+                );
             }
         }
 
@@ -381,21 +420,14 @@ public class RaftService {
 
         updateCommitIndex();
 
-        if (leaderNode.getCommitIndex() ==
-                leaderNode.getLogEntries().size() - 1) {
+        if (leaderNode.getCommitIndex()
+                == leaderNode.getLastLogIndex()) {
 
             System.out.println("Majority Achieved.");
 
-            System.out.println(
-                    "Commit Index = "
-                            + leaderNode.getCommitIndex()
-            );
-
-            System.out.println("Applying to State Machine...");
-
             stateMachineService.apply(logEntry);
 
-            System.out.println("Applied Successfully.");
+            createSnapshot();
 
         } else {
 
@@ -425,7 +457,7 @@ public class RaftService {
 
                 leaderNode.getNextIndex().put(
                         node.getNodeId(),
-                        leaderNode.getLogEntries().size()
+                        leaderNode.getLogEntriesSize()
                 );
 
                 leaderNode.getMatchIndex().put(
@@ -456,35 +488,52 @@ public class RaftService {
                 continue;
             }
 
-            // Skip offline followers
             if (!node.isOnline()) {
                 continue;
             }
 
-            // Then check network partition
             if (!canCommunicate(leaderNode, node)) {
 
                 System.out.println(
                         "Heartbeat blocked by Network Partition to "
-                        + node.getNodeId()
-                );
+                                + node.getNodeId());
 
                 continue;
             }
 
-            int prevLogIndex = leaderNode.getLogEntries().size() - 1;
+            int nextIndex = leaderNode.getNextIndex()
+                    .getOrDefault(node.getNodeId(), leaderNode.getLogEntriesSize());
+
+            int prevLogIndex = nextIndex - 1;
 
             int prevLogTerm = 0;
 
-            if (prevLogIndex >= 0) {
+            if (prevLogIndex >= 0 &&
+                    prevLogIndex < leaderNode.getLogEntriesSize()) {
 
-                prevLogTerm =
-                        leaderNode.getLogEntries()
-                                .get(prevLogIndex)
-                                .getTerm();
+                prevLogTerm = leaderNode.getLogTerm(prevLogIndex);
             }
 
-            AppendEntriesRequest heartbeatRequest =
+            List<LogEntry> entries = leaderNode.getLogEntriesSubList(nextIndex);
+
+            // Lagging follower / InstallSnapshot simulation
+            if (entries == null) {
+                System.out.println("Follower " + node.getNodeId() + " is behind leader's snapshot during heartbeat. Syncing snapshot.");
+                node.setLastIncludedIndex(leaderNode.getLastIncludedIndex());
+                node.setLastIncludedTerm(leaderNode.getLastIncludedTerm());
+                node.getLogEntries().clear();
+                for (LogEntry entry : leaderNode.getLogEntries()) {
+                    node.getLogEntries().add(new LogEntry(entry.getTerm(), entry.getKey(), entry.getValue()));
+                }
+                node.setCommitIndex(leaderNode.getLastIncludedIndex());
+                leaderNode.getMatchIndex().put(node.getNodeId(), leaderNode.getLastLogIndex());
+                leaderNode.getNextIndex().put(node.getNodeId(), leaderNode.getLogEntriesSize());
+                node.setLastHeartbeatTime(currentTime);
+                node.resetElectionTimeout();
+                continue;
+            }
+
+            AppendEntriesRequest request =
                     new AppendEntriesRequest(
 
                             leaderNode.getCurrentTerm(),
@@ -495,59 +544,64 @@ public class RaftService {
 
                             prevLogTerm,
 
-                            List.of(),
+                            entries,
 
                             leaderNode.getCommitIndex()
                     );
 
             AppendEntriesResponse response =
-                    sendAppendEntries(node, heartbeatRequest);
+                    sendAppendEntries(node, request);
+
+            // -----------------------------------------
+            // VERY IMPORTANT
+            // Leader steps down if follower has higher term
+            // -----------------------------------------
+
+            if (response.getTerm() > leaderNode.getCurrentTerm()) {
+
+                System.out.println(
+                        "\nHigher term discovered from "
+                                + node.getNodeId());
+
+                leaderNode.setCurrentTerm(response.getTerm());
+
+                leaderNode.setCurrentState(NodeState.FOLLOWER);
+
+                leaderNode.setVotedFor(null);
+
+                leaderAlive = false;
+
+                return;
+            }
 
             if (response.isSuccess()) {
+
+                leaderNode.getMatchIndex().put(
+                        node.getNodeId(),
+                        leaderNode.getLastLogIndex());
+
+                leaderNode.getNextIndex().put(
+                        node.getNodeId(),
+                        leaderNode.getLogEntriesSize());
 
                 node.setLastHeartbeatTime(currentTime);
 
                 node.resetElectionTimeout();
 
                 System.out.println(
-                        "❤️ " + node.getNodeId()
-                                + " received heartbeat"
-                );
+                        "❤️ "
+                                + node.getNodeId()
+                                + " received heartbeat");
             }
 
-            // ---------------------------------
-            // NEW PART
-            // ---------------------------------
-
-            Integer nextIndex =
-                    leaderNode.getNextIndex().get(node.getNodeId());
-
-            if (nextIndex == null) {
-                continue;
-            }
-
-            if (nextIndex < leaderNode.getLogEntries().size()) {
+            else {
 
                 System.out.println(
-                        node.getNodeId() +
-                        " is behind. Starting replication..."
+                        node.getNodeId()
+                        + " is behind. Starting catch-up..."
                 );
 
-                while (leaderNode.getNextIndex().get(node.getNodeId())
-                        < leaderNode.getLogEntries().size()) {
-
-                    int index = leaderNode.getNextIndex().get(node.getNodeId());
-
-                    LogEntry entry =
-                            leaderNode.getLogEntries().get(index);
-
-                    boolean success =
-                            replicateToFollower(node, entry);
-
-                    if (!success) {
-                        break;
-                    }
-                }
+                replicateToFollower(node);
             }
         }
     }
@@ -556,18 +610,22 @@ public class RaftService {
     public void heartbeatTask() {
 
         if (leaderNode.getCurrentState() == NodeState.LEADER
-        && leaderAlive
-        && leaderNode.isOnline()) {
+                && leaderAlive
+                && leaderNode.isOnline()) {
 
-        sendHeartbeat();
-    }
+            sendHeartbeat();
+        }
 
         long currentTime = System.currentTimeMillis();
 
         for (RaftNode node : cluster.getNodes()) {
 
-            if (node.isOnline()
-        && node.getCurrentState() == NodeState.FOLLOWER) {
+            if (!node.isOnline()) {
+                continue;
+            }
+
+            // Followers
+            if (node.getCurrentState() == NodeState.FOLLOWER) {
 
                 long elapsed =
                         currentTime - node.getLastHeartbeatTime();
@@ -575,14 +633,33 @@ public class RaftService {
                 if (elapsed > node.getElectionTimeout()) {
 
                     System.out.println(
-                            "\n⏰ " +
-                            node.getNodeId() +
-                            " timeout!"
+                            "\n⏰ " + node.getNodeId() + " timeout!"
                     );
 
                     startElection(node);
+                }
+            }
 
-                    break;
+            // Candidates that lost election
+            else if (node.getCurrentState() == NodeState.CANDIDATE) {
+
+                long elapsed =
+                        currentTime - node.getLastHeartbeatTime();
+
+                if (elapsed > node.getElectionTimeout()) {
+
+                    System.out.println(
+                            node.getNodeId()
+                                    + " election failed. Returning to FOLLOWER."
+                    );
+
+                    node.setCurrentState(NodeState.FOLLOWER);
+
+                    node.setVotedFor(null);
+
+                    node.resetElectionTimeout();
+
+                    node.setLastHeartbeatTime(currentTime);
                 }
             }
         }
@@ -604,7 +681,7 @@ public class RaftService {
             );
 
             return new RequestVoteResponse(
-                    follower.getCurrentTerm(),
+                    request.getTerm(),
                     false
             );
         }
@@ -641,14 +718,12 @@ public class RaftService {
         int candidateLastIndex = request.getLastLogIndex();
 
         // Follower last log
-        int followerLastIndex = follower.getLogEntries().size() - 1;
+        int followerLastIndex = follower.getLastLogIndex();
 
         int followerLastTerm = 0;
 
         if (followerLastIndex >= 0) {
-            followerLastTerm = follower.getLogEntries()
-                    .get(followerLastIndex)
-                    .getTerm();
+            followerLastTerm = follower.getLogTerm(followerLastIndex);
         }
 
         // -------------------------------
@@ -681,6 +756,10 @@ public class RaftService {
             follower.setVotedFor(request.getCandidateId());
 
             follower.setCurrentTerm(request.getTerm());
+
+            follower.setLastHeartbeatTime(System.currentTimeMillis());
+
+            follower.resetElectionTimeout();
 
             System.out.println(
                     follower.getNodeId()
@@ -721,14 +800,12 @@ public class RaftService {
         System.out.println(candidate.getNodeId() + " became CANDIDATE");
         System.out.println(candidate.getNodeId() + " voted for itself");
 
-        int lastLogIndex = candidate.getLogEntries().size() - 1;
+        int lastLogIndex = candidate.getLastLogIndex();
 
         int lastLogTerm = 0;
 
         if (lastLogIndex >= 0) {
-            lastLogTerm = candidate.getLogEntries()
-                    .get(lastLogIndex)
-                    .getTerm();
+            lastLogTerm = candidate.getLogTerm(lastLogIndex);
         }
 
         for (RaftNode node : cluster.getNodes()) {
@@ -806,7 +883,7 @@ public class RaftService {
 
                     candidate.getNextIndex().put(
                             node.getNodeId(),
-                            candidate.getLogEntries().size()
+                            candidate.getLogEntriesSize()
                     );
 
                     candidate.getMatchIndex().put(
@@ -866,15 +943,11 @@ public class RaftService {
 
         System.out.println("\nSynchronizing logs with " + follower.getNodeId());
 
-        List<LogEntry> leaderLogs = leaderNode.getLogEntries();
-
-        int index = leaderLogs.size() - 1;
+        int index = leaderNode.getLastLogIndex();
 
         while (index >= 0) {
 
-            LogEntry leaderEntry = leaderLogs.get(index);
-
-            if (follower.hasMatchingLog(index, leaderEntry.getTerm())) {
+            if (follower.hasMatchingLog(index, leaderNode.getLogTerm(index))) {
                 break;
             }
 
@@ -887,24 +960,25 @@ public class RaftService {
 
         follower.removeLogsFrom(index + 1);
 
-        for (int i = index + 1; i < leaderLogs.size(); i++) {
+        for (int i = index + 1; i < leaderNode.getLogEntriesSize(); i++) {
 
-            LogEntry entry = leaderLogs.get(i);
+            LogEntry entry = leaderNode.getLogEntry(i);
+            if (entry != null) {
+                follower.addLogEntry(
+                        new LogEntry(
+                                entry.getTerm(),
+                                entry.getKey(),
+                                entry.getValue()
+                        )
+                );
 
-            follower.addLogEntry(
-                    new LogEntry(
-                            entry.getTerm(),
-                            entry.getKey(),
-                            entry.getValue()
-                    )
-            );
-
-            System.out.println(
-                    "Replicated : "
-                            + entry.getKey()
-                            + " -> "
-                            + entry.getValue()
-            );
+                System.out.println(
+                        "Replicated : "
+                                + entry.getKey()
+                                + " -> "
+                                + entry.getValue()
+                );
+            }
         }
 
         System.out.println("Synchronization Completed.");
@@ -968,5 +1042,82 @@ public class RaftService {
                 "\n✅ Network Partition Healed Between "
                         + nodeA + " and " + nodeB
         );
+
+        // No manual synchronization here.
+        // The next heartbeat from the leader will automatically
+        // trigger AppendEntries and replicateToFollower().
+    }
+    private void createSnapshot() {
+
+        if (leaderNode.getCommitIndex() < SNAPSHOT_THRESHOLD) {
+            return;
+        }
+
+        System.out.println("\n========== SNAPSHOT ==========");
+
+        int snapshotIndex = leaderNode.getCommitIndex();
+
+        lastIncludedIndex = snapshotIndex;
+
+        lastIncludedTerm = leaderNode.getLogTerm(snapshotIndex);
+
+        System.out.println(
+                "Snapshot Created up to Index "
+                        + lastIncludedIndex
+        );
+
+        leaderNode.createSnapshot(snapshotIndex);
+
+        for (RaftNode node : cluster.getNodes()) {
+            if (node == leaderNode) continue;
+            if (node.isOnline() && node.getCommitIndex() >= snapshotIndex) {
+                node.createSnapshot(snapshotIndex);
+            }
+        }
+
+        for (RaftNode node : cluster.getNodes()) {
+
+            if (node == leaderNode)
+                continue;
+
+            int currentNextIndex = leaderNode.getNextIndex()
+                    .getOrDefault(node.getNodeId(), leaderNode.getLogEntriesSize());
+
+            if (currentNextIndex <= leaderNode.getLastIncludedIndex()) {
+                leaderNode.getNextIndex().put(
+                        node.getNodeId(),
+                        leaderNode.getLastIncludedIndex() + 1
+                );
+            }
+        }
+
+        System.out.println(
+                "Old Logs Removed."
+        );
+
+        System.out.println(
+                "Remaining Logs : "
+                        + leaderNode.getLogEntries().size()
+        );
+
+        System.out.println("==============================");
+    }
+
+    public String getValue(String key) {
+
+            return repository.findById(key)
+                    .map(KeyValue::getValue)
+                    .orElse("Key not found");
+    }
+
+    public String deleteKey(String key) {
+
+        if (!repository.existsById(key)) {
+            return "Key Not Found";
+        }
+
+        repository.deleteById(key);
+
+        return "Deleted Successfully";
     }
 }
