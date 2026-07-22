@@ -59,9 +59,13 @@ public class RaftService {
         System.out.println("\nSending AppendEntries RPC to "
                 + follower.getNodeId());
 
-        if (!follower.isOnline()) {
+        if (!canCommunicate(leaderNode, follower)) {
 
-            System.out.println(follower.getNodeId() + " is OFFLINE");
+            System.out.println(
+                    "Network Partition between "
+                            + leaderNode.getNodeId()
+                            + " and "
+                            + follower.getNodeId());
 
             return new AppendEntriesResponse(
                     follower.getCurrentTerm(),
@@ -69,10 +73,34 @@ public class RaftService {
             );
         }
 
-       // -------------------------------
-        // Previous Log Index Validation
-        // -------------------------------
+        // Reject older term
+        if (request.getTerm() < follower.getCurrentTerm()) {
 
+            System.out.println("Rejected! Leader has older term.");
+
+            return new AppendEntriesResponse(
+                    follower.getCurrentTerm(),
+                    false
+            );
+        }
+
+        // Update follower term
+        if (request.getTerm() > follower.getCurrentTerm()) {
+
+            follower.setCurrentTerm(request.getTerm());
+
+            follower.setCurrentState(NodeState.FOLLOWER);
+
+            follower.setVotedFor(null);
+
+            System.out.println(
+                    follower.getNodeId()
+                            + " updated to higher term "
+                            + request.getTerm()
+            );
+        }
+
+        // Validate previous index
         if (request.getPrevLogIndex() >= follower.getLogEntries().size()) {
 
             System.out.println(
@@ -85,10 +113,7 @@ public class RaftService {
             );
         }
 
-        // -------------------------------
-        // Previous Log Term Validation
-        // -------------------------------
-
+        // Validate previous term
         if (request.getPrevLogIndex() >= 0) {
 
             int followerPrevTerm =
@@ -109,6 +134,50 @@ public class RaftService {
             }
         }
 
+        // -------------------------------
+        // ACTUAL LOG REPLICATION
+        // -------------------------------
+
+        if (!request.getEntries().isEmpty()) {
+
+            while (follower.getLogEntries().size() > request.getPrevLogIndex() + 1) {
+
+                follower.getLogEntries()
+                        .remove(follower.getLogEntries().size() - 1);
+            }
+
+            for (LogEntry entry : request.getEntries()) {
+
+                follower.addLogEntry(
+                        new LogEntry(
+                                entry.getTerm(),
+                                entry.getKey(),
+                                entry.getValue()
+                        )
+                );
+
+                System.out.println(
+                        "Replicated : "
+                                + entry.getKey()
+                                + " -> "
+                                + entry.getValue()
+                );
+            }
+        }
+
+        follower.setCommitIndex(
+                Math.min(
+                        request.getLeaderCommit(),
+                        follower.getLogEntries().size() - 1
+                )
+        );
+
+        follower.setLastHeartbeatTime(System.currentTimeMillis());
+
+        follower.resetElectionTimeout();
+
+        follower.setCurrentState(NodeState.FOLLOWER);
+
         System.out.println(
                 "AppendEntries Accepted by "
                         + follower.getNodeId()
@@ -124,69 +193,83 @@ public class RaftService {
 
         while (true) {
 
-            int nextIndex = leaderNode.getNextIndex().get(follower.getNodeId());
+            int nextIndex =
+                    leaderNode.getNextIndex().get(follower.getNodeId());
 
             int prevLogIndex = nextIndex - 1;
 
             int prevLogTerm = 0;
 
             if (prevLogIndex >= 0) {
-                prevLogTerm = leaderNode.getLogEntries()
-                        .get(prevLogIndex)
-                        .getTerm();
+
+                prevLogTerm =
+                        leaderNode.getLogEntries()
+                                .get(prevLogIndex)
+                                .getTerm();
             }
 
-            AppendEntriesRequest request = new AppendEntriesRequest(
-                    leaderNode.getCurrentTerm(),
-                    leaderNode.getNodeId(),
-                    prevLogIndex,
-                    prevLogTerm,
+            AppendEntriesRequest request =
+                    new AppendEntriesRequest(
 
-                    leaderNode.getLogEntries().subList(
-                            nextIndex,
-                            leaderNode.getLogEntries().size()
-                    ),
+                            leaderNode.getCurrentTerm(),
 
-                    leaderNode.getCommitIndex()
-            );
+                            leaderNode.getNodeId(),
+
+                            prevLogIndex,
+
+                            prevLogTerm,
+
+                            leaderNode.getLogEntries().subList(
+                                    nextIndex,
+                                    leaderNode.getLogEntries().size()
+                            ),
+
+                            leaderNode.getCommitIndex()
+                    );
 
             AppendEntriesResponse response =
                     sendAppendEntries(follower, request);
 
             if (response.isSuccess()) {
 
-                for (LogEntry entry : request.getEntries()) {
-
-                    follower.addLogEntry(
-                            new LogEntry(
-                                    entry.getTerm(),
-                                    entry.getKey(),
-                                    entry.getValue()
-                            )
-                    );
-
-                    System.out.println(
-                            "Replicated : "
-                                    + entry.getKey()
-                                    + " -> "
-                                    + entry.getValue()
-                    );
-                }
-
                 leaderNode.getNextIndex().put(
                         follower.getNodeId(),
                         leaderNode.getLogEntries().size()
                 );
+
                 leaderNode.getMatchIndex().put(
                         follower.getNodeId(),
                         leaderNode.getLogEntries().size() - 1
                 );
 
+                follower.setLastHeartbeatTime(
+                        System.currentTimeMillis()
+                );
+
+                follower.resetElectionTimeout();
+
                 System.out.println(
-                        follower.getNodeId() + " synchronized."
+                        follower.getNodeId()
+                                + " synchronized."
                 );
 
                 return true;
+            }
+
+            if (response.getTerm() > leaderNode.getCurrentTerm()) {
+
+                leaderNode.setCurrentTerm(response.getTerm());
+
+                leaderNode.setCurrentState(NodeState.FOLLOWER);
+
+                leaderAlive = false;
+
+                System.out.println(
+                        leaderNode.getNodeId()
+                                + " stepped down. Higher term discovered."
+                );
+
+                return false;
             }
 
             if (nextIndex == 0) {
@@ -215,9 +298,21 @@ public class RaftService {
 
         int lastLogIndex = leaderNode.getLogEntries().size() - 1;
 
-        for (int index = lastLogIndex; index > leaderNode.getCommitIndex(); index--) {
+        for (int index = lastLogIndex;
+            index > leaderNode.getCommitIndex();
+            index--) {
 
-            int replicatedCount = 1; // Leader itself
+            // Raft Rule:
+            // Only commit entries from CURRENT TERM
+
+            if (leaderNode.getLogEntries()
+                    .get(index)
+                    .getTerm() != leaderNode.getCurrentTerm()) {
+
+                continue;
+            }
+
+            int replicatedCount = 1;
 
             for (RaftNode node : cluster.getNodes()) {
 
@@ -225,14 +320,18 @@ public class RaftService {
                     continue;
                 }
 
-                Integer match = leaderNode.getMatchIndex().get(node.getNodeId());
+                Integer match =
+                        leaderNode.getMatchIndex()
+                                .get(node.getNodeId());
 
                 if (match != null && match >= index) {
+
                     replicatedCount++;
                 }
             }
 
-            int majority = (cluster.getNodes().size() / 2) + 1;
+            int majority =
+                    (cluster.getNodes().size() / 2) + 1;
 
             if (replicatedCount >= majority) {
 
@@ -353,18 +452,102 @@ public class RaftService {
 
         for (RaftNode node : cluster.getNodes()) {
 
-            if (!node.getNodeId().equals(leaderNode.getNodeId())
-                    && node.isOnline()) {
+            if (node == leaderNode) {
+                continue;
+            }
+
+            // Skip offline followers
+            if (!node.isOnline()) {
+                continue;
+            }
+
+            // Then check network partition
+            if (!canCommunicate(leaderNode, node)) {
+
+                System.out.println(
+                        "Heartbeat blocked by Network Partition to "
+                        + node.getNodeId()
+                );
+
+                continue;
+            }
+
+            int prevLogIndex = leaderNode.getLogEntries().size() - 1;
+
+            int prevLogTerm = 0;
+
+            if (prevLogIndex >= 0) {
+
+                prevLogTerm =
+                        leaderNode.getLogEntries()
+                                .get(prevLogIndex)
+                                .getTerm();
+            }
+
+            AppendEntriesRequest heartbeatRequest =
+                    new AppendEntriesRequest(
+
+                            leaderNode.getCurrentTerm(),
+
+                            leaderNode.getNodeId(),
+
+                            prevLogIndex,
+
+                            prevLogTerm,
+
+                            List.of(),
+
+                            leaderNode.getCommitIndex()
+                    );
+
+            AppendEntriesResponse response =
+                    sendAppendEntries(node, heartbeatRequest);
+
+            if (response.isSuccess()) {
 
                 node.setLastHeartbeatTime(currentTime);
 
                 node.resetElectionTimeout();
 
                 System.out.println(
-                        "❤️ " +
-                        node.getNodeId() +
-                        " received heartbeat"
+                        "❤️ " + node.getNodeId()
+                                + " received heartbeat"
                 );
+            }
+
+            // ---------------------------------
+            // NEW PART
+            // ---------------------------------
+
+            Integer nextIndex =
+                    leaderNode.getNextIndex().get(node.getNodeId());
+
+            if (nextIndex == null) {
+                continue;
+            }
+
+            if (nextIndex < leaderNode.getLogEntries().size()) {
+
+                System.out.println(
+                        node.getNodeId() +
+                        " is behind. Starting replication..."
+                );
+
+                while (leaderNode.getNextIndex().get(node.getNodeId())
+                        < leaderNode.getLogEntries().size()) {
+
+                    int index = leaderNode.getNextIndex().get(node.getNodeId());
+
+                    LogEntry entry =
+                            leaderNode.getLogEntries().get(index);
+
+                    boolean success =
+                            replicateToFollower(node, entry);
+
+                    if (!success) {
+                        break;
+                    }
+                }
             }
         }
     }
@@ -406,20 +589,39 @@ public class RaftService {
     }
 
     private RequestVoteResponse sendRequestVote(
+            RaftNode candidate,
             RaftNode follower,
             RequestVoteRequest request) {
 
-        System.out.println(
-                "\nSending RequestVote RPC to " + follower.getNodeId()
+            System.out.println(
+                    "\nSending RequestVote RPC to " + follower.getNodeId()
         );
 
-        if (!follower.isOnline()) {
+        if (!canCommunicate(candidate, follower)) {
 
-            System.out.println(follower.getNodeId() + " is OFFLINE");
+            System.out.println(
+                "RequestVote blocked by Network Partition."
+            );
 
             return new RequestVoteResponse(
                     follower.getCurrentTerm(),
                     false
+            );
+        }
+
+        // Higher term discovered
+        if (request.getTerm() > follower.getCurrentTerm()) {
+
+            follower.setCurrentTerm(request.getTerm());
+
+            follower.setCurrentState(NodeState.FOLLOWER);
+
+            follower.setVotedFor(null);
+
+            System.out.println(
+                    follower.getNodeId()
+                    + " updated to higher term "
+                    + request.getTerm()
             );
         }
 
@@ -508,28 +710,31 @@ public class RaftService {
 
         candidate.resetElectionTimeout();
 
-        candidate.setCurrentState(NodeState.CANDIDATE);
         candidate.setCurrentTerm(candidate.getCurrentTerm() + 1);
+
+        candidate.setCurrentState(NodeState.CANDIDATE);
+
         candidate.setVotesReceived(1);
+
         candidate.setVotedFor(candidate.getNodeId());
 
         System.out.println(candidate.getNodeId() + " became CANDIDATE");
         System.out.println(candidate.getNodeId() + " voted for itself");
 
+        int lastLogIndex = candidate.getLogEntries().size() - 1;
+
+        int lastLogTerm = 0;
+
+        if (lastLogIndex >= 0) {
+            lastLogTerm = candidate.getLogEntries()
+                    .get(lastLogIndex)
+                    .getTerm();
+        }
+
         for (RaftNode node : cluster.getNodes()) {
 
             if (node == candidate || !node.isOnline()) {
                 continue;
-            }
-
-            int lastLogIndex = candidate.getLogEntries().size() - 1;
-
-            int lastLogTerm = 0;
-
-            if (lastLogIndex >= 0) {
-                lastLogTerm = candidate.getLogEntries()
-                        .get(lastLogIndex)
-                        .getTerm();
             }
 
             RequestVoteRequest request = new RequestVoteRequest(
@@ -540,7 +745,27 @@ public class RaftService {
             );
 
             RequestVoteResponse response =
-                    sendRequestVote(node, request);
+                    sendRequestVote(candidate, node, request);
+
+            // ----------------------------
+            // NEW: Higher term discovered
+            // ----------------------------
+
+            if (response.getTerm() > candidate.getCurrentTerm()) {
+
+                candidate.setCurrentTerm(response.getTerm());
+
+                candidate.setCurrentState(NodeState.FOLLOWER);
+
+                candidate.setVotedFor(null);
+
+                System.out.println(
+                        candidate.getNodeId()
+                                + " stepped down. Higher term discovered."
+                );
+
+                return;
+            }
 
             if (response.isVoteGranted()) {
 
@@ -551,12 +776,13 @@ public class RaftService {
         }
 
         int majority = (cluster.getNodes().size() / 2) + 1;
+
         if (candidate.getVotesReceived() >= majority) {
 
             System.out.println(
-                    "\n🏆 " +
-                    candidate.getNodeId() +
-                    " becomes NEW LEADER"
+                    "\n🏆 "
+                            + candidate.getNodeId()
+                            + " becomes NEW LEADER"
             );
 
             for (RaftNode node : cluster.getNodes()) {
@@ -565,21 +791,27 @@ public class RaftService {
 
                 node.setVotesReceived(0);
 
-                node.setVotedFor(null);
-
                 node.resetElectionTimeout();
             }
 
             candidate.setCurrentState(NodeState.LEADER);
+
             candidate.getNextIndex().clear();
+
+            candidate.getMatchIndex().clear();
 
             for (RaftNode node : cluster.getNodes()) {
 
-                if (!node.getNodeId().equals(candidate.getNodeId())) {
+                if (node != candidate) {
 
                     candidate.getNextIndex().put(
                             node.getNodeId(),
                             candidate.getLogEntries().size()
+                    );
+
+                    candidate.getMatchIndex().put(
+                            node.getNodeId(),
+                            -1
                     );
                 }
             }
@@ -624,11 +856,7 @@ public class RaftService {
                 node.setOnline(true);
 
                 System.out.println(nodeId + " is ONLINE");
-
-                if (node != leaderNode) {
-                    synchronizeLogs(node);
-                }
-
+                
                 return;
             }
         }
@@ -682,4 +910,63 @@ public class RaftService {
         System.out.println("Synchronization Completed.");
     }
 
+    private boolean canCommunicate(RaftNode from, RaftNode to) {
+
+        return from.isOnline()
+                && to.isOnline()
+                && from.canCommunicateWith(to.getNodeId())
+                && to.canCommunicateWith(from.getNodeId());
+    }
+
+    public void createPartition(String nodeA, String nodeB) {
+
+        RaftNode first = null;
+        RaftNode second = null;
+
+        for (RaftNode node : cluster.getNodes()) {
+
+            if (node.getNodeId().equals(nodeA))
+                first = node;
+
+            if (node.getNodeId().equals(nodeB))
+                second = node;
+        }
+
+        if (first == null || second == null)
+            return;
+
+        first.setCommunication(nodeB, false);
+        second.setCommunication(nodeA, false);
+
+        System.out.println(
+                "\n🚧 Network Partition Created Between "
+                        + nodeA + " and " + nodeB
+        );
+    }
+
+    public void healPartition(String nodeA, String nodeB) {
+
+        RaftNode first = null;
+        RaftNode second = null;
+
+        for (RaftNode node : cluster.getNodes()) {
+
+            if (node.getNodeId().equals(nodeA))
+                first = node;
+
+            if (node.getNodeId().equals(nodeB))
+                second = node;
+        }
+
+        if (first == null || second == null)
+            return;
+
+        first.setCommunication(nodeB, true);
+        second.setCommunication(nodeA, true);
+
+        System.out.println(
+                "\n✅ Network Partition Healed Between "
+                        + nodeA + " and " + nodeB
+        );
+    }
 }

@@ -33,6 +33,8 @@ public class RaftNode {
 
     private Map<String, Integer> matchIndex;
 
+    private Map<String, Boolean> communicationMap;
+
     private final List<LogEntry> logEntries;
 
     public RaftNode(String nodeId) {
@@ -51,6 +53,7 @@ public class RaftNode {
         this.logEntries = new ArrayList<>();
         this.nextIndex = new HashMap<>();
         this.matchIndex = new HashMap<>();
+        this.communicationMap = new HashMap<>();
     }
 
     public String getNodeId() {
@@ -156,6 +159,21 @@ public class RaftNode {
         while (logEntries.size() > index) {
             logEntries.remove(logEntries.size() - 1);
         }
+    }
+
+    public boolean canCommunicateWith(String nodeId) {
+
+        return communicationMap.getOrDefault(nodeId, true);
+    }
+
+    public void setCommunication(String nodeId, boolean status) {
+
+        communicationMap.put(nodeId, status);
+    }
+
+    public Map<String, Boolean> getCommunicationMap() {
+
+        return communicationMap;
     }
     
     public Map<String, Integer> getNextIndex() {

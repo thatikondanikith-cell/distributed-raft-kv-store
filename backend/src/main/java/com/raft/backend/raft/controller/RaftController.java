@@ -69,4 +69,30 @@ public class RaftController {
 
         return nodeId + " reconnected.";
     }
+
+    @PostMapping("/partition/{nodeA}/{nodeB}")
+    public String partition(
+            @PathVariable String nodeA,
+            @PathVariable String nodeB) {
+
+        raftService.createPartition(nodeA, nodeB);
+
+        return "Partition created between "
+                + nodeA
+                + " and "
+                + nodeB;
+    }
+
+    @PostMapping("/heal/{nodeA}/{nodeB}")
+    public String heal(
+            @PathVariable String nodeA,
+            @PathVariable String nodeB) {
+
+        raftService.healPartition(nodeA, nodeB);
+
+        return "Partition healed between "
+                + nodeA
+                + " and "
+                + nodeB;
+    }
 }
