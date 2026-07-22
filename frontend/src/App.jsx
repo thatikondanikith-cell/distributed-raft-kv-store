@@ -1,11 +1,20 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import MainLayout from "./layouts/MainLayout";
 import Dashboard from "./pages/Dashboard";
 import DataOperations from "./pages/DataOperations";
 import KeyValueStore from "./pages/KeyValueStore";
+import Nodes from "./pages/Nodes";
+import NodeDetails from "./pages/NodeDetails";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
-function App() {
-  const [currentPage, setCurrentPage] = useState("Dashboard");
+function AppContent() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const currentPage = location.pathname.startsWith("/nodes") ? "Nodes" : location.pathname === "/data-operations" ? "Data Operations" : location.pathname === "/key-value-store" ? "Key-Value Store" : "Dashboard";
+  const setCurrentPage = (page) => {
+    const paths = { Dashboard: "/", Nodes: "/nodes", "Data Operations": "/data-operations", "Key-Value Store": "/key-value-store" };
+    navigate(paths[page] || "/");
+  };
   const [nodes, setNodes] = useState([
     { id: 1, nodeName: "Node 1", role: "Leader", status: "Online", term: 18, logIndex: 584 },
     { id: 2, nodeName: "Node 2", role: "Follower", status: "Online", term: 18, logIndex: 584 },
@@ -242,33 +251,18 @@ function App() {
       currentPage={currentPage}
       onPageChange={setCurrentPage}
     >
-      {currentPage === "Dashboard" && (
-        <Dashboard
-          nodes={nodes}
-          activities={activities}
-          logHistory={logHistory}
-          writingState={writingState}
-          onToggleNode={handleToggleNode}
-          onTriggerWrite={handleTriggerWrite}
-          onForceElection={handleForceElection}
-        />
-      )}
-      {currentPage === "Data Operations" && (
-        <DataOperations />
-      )}
-      {currentPage === "Key-Value Store" && (
-        <KeyValueStore />
-      )}
-      {currentPage !== "Dashboard" && currentPage !== "Data Operations" && currentPage !== "Key-Value Store" && (
-        <div className="glass-card rounded-2xl p-8 max-w-lg mx-auto mt-12 text-center border border-white/5">
-          <h2 className="text-xl font-bold text-slate-200 mb-2">Feature Under Development</h2>
-          <p className="text-slate-400 text-xs">
-            The "{currentPage}" panel is currently under development. Please check back later.
-          </p>
-        </div>
-      )}
+      <Routes>
+        <Route path="/" element={<Dashboard nodes={nodes} activities={activities} logHistory={logHistory} writingState={writingState} onToggleNode={handleToggleNode} onTriggerWrite={handleTriggerWrite} onForceElection={handleForceElection} />} />
+        <Route path="/nodes" element={<Nodes />} />
+        <Route path="/nodes/:id" element={<NodeDetails />} />
+        <Route path="/data-operations" element={<DataOperations />} />
+        <Route path="/key-value-store" element={<KeyValueStore />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </MainLayout>
   );
 }
+
+function App() { return <BrowserRouter><AppContent /></BrowserRouter>; }
 
 export default App;

@@ -13,7 +13,7 @@ function Sidebar({ clusterHealth = "Healthy", currentPage = "Dashboard", onPageC
       title: "Core Monitoring",
       items: [
         { name: "Dashboard", icon: <LayoutDashboard size={15} />, active: currentPage === "Dashboard" },
-        { name: "Node Details", icon: <Server size={15} />, active: currentPage === "Node Details" },
+        { name: "Nodes", icon: <Server size={15} />, active: currentPage === "Nodes" },
         { name: "Log Streams", icon: <ScrollText size={15} />, active: currentPage === "Log Streams" },
       ]
     },
@@ -40,7 +40,7 @@ function Sidebar({ clusterHealth = "Healthy", currentPage = "Dashboard", onPageC
   const status = healthIndicators[clusterHealth] || healthIndicators.Healthy;
 
   return (
-    <aside className="w-60 h-full bg-[#070912] border-r border-white/[0.02] p-5 flex flex-col justify-between select-none">
+    <aside className="hidden md:flex w-60 h-full bg-[#070912] border-r border-white/[0.02] p-5 flex-col justify-between select-none">
       
       {/* Menu Categories */}
       <div className="flex flex-col gap-6">

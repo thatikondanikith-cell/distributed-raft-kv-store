@@ -11,7 +11,7 @@ function MainLayout({ children, clusterHealth = "Healthy", leaderName = "Node 1"
 
         <Sidebar clusterHealth={clusterHealth} currentPage={currentPage} onPageChange={onPageChange} />
 
-        <main className="flex-1 bg-transparent p-8 overflow-y-auto scroll-gpu">
+        <main className="flex-1 bg-transparent p-4 sm:p-6 lg:p-8 overflow-y-auto scroll-gpu">
           {children}
         </main>
 

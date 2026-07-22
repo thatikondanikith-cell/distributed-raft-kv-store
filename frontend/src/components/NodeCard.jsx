@@ -1,13 +1,19 @@
-import { Crown, Cpu, Power } from "lucide-react";
+import { ChevronRight, Crown, Cpu } from "lucide-react";
 
-function NodeCard({ id, nodeName, role, status, term, logIndex, onToggle }) {
+function NodeCard({ nodeName, role, status, term, logIndex, onViewDetails }) {
   const isLeader = role === "Leader";
   const isOffline = status === "Offline";
   const isCandidate = role === "Candidate";
+  const isRunning = status === "Running" || status === "Online";
 
   return (
     <div
-
+      onClick={onViewDetails}
+      onKeyDown={(event) => {
+        if (onViewDetails && (event.key === "Enter" || event.key === " ")) onViewDetails();
+      }}
+      role={onViewDetails ? "button" : undefined}
+      tabIndex={onViewDetails ? 0 : undefined}
       className={`glass-card rounded-2xl p-6 flex flex-col justify-between min-h-[12.5rem] w-full transition-all duration-300 relative ${
         isOffline
           ? "bg-slate-950/40 border-rose-950/30 opacity-60 shadow-[0_8px_32px_rgba(0,0,0,0.3)]"
@@ -16,10 +22,10 @@ function NodeCard({ id, nodeName, role, status, term, logIndex, onToggle }) {
           : isCandidate
           ? "bg-slate-900/60 border-purple-500/20 shadow-[0_0_30px_rgba(168,85,247,0.03)]"
           : "bg-slate-900/40 border-slate-900 shadow-[0_8px_32px_rgba(0,0,0,0.15)] hover:border-slate-800"
-      } hover:-translate-y-1`}
+      } hover:-translate-y-1 ${onViewDetails ? "cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60" : ""}`}
     >
       
-      {/* Top Header: Role Badge + Power Action */}
+      {/* Top Header: Role and status badges */}
       <div className="flex items-center justify-between">
         
         {/* Role Badge */}
@@ -35,21 +41,17 @@ function NodeCard({ id, nodeName, role, status, term, logIndex, onToggle }) {
           }`}
         >
           {isLeader ? <Crown size={9} className="text-amber-400" /> : <Cpu size={9} />}
-          {isOffline ? "OFFLINE" : role}
+          {role}
         </span>
 
-        {/* Power Toggle Button */}
-        <button
-          onClick={() => onToggle && onToggle(id)}
-          className={`p-2 rounded-xl border transition-all duration-300 cursor-pointer ${
-            isOffline
-              ? "bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20 shadow-[0_0_8px_rgba(239,68,68,0.2)]"
-              : "bg-slate-950 border-slate-900 text-slate-500 hover:border-rose-500/30 hover:text-rose-400 hover:bg-rose-500/10"
-          }`}
-          title={isOffline ? "Activate Node" : "Deactivate Node"}
-        >
-          <Power size={12} />
-        </button>
+        <span className={`inline-flex items-center gap-1.5 text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-1 rounded-full border ${
+          isRunning
+            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
+            : "bg-rose-500/10 text-rose-400 border-rose-500/25"
+        }`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${isRunning ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.7)]" : "bg-rose-400"}`} />
+          {status}
+        </span>
 
       </div>
 
@@ -111,6 +113,12 @@ function NodeCard({ id, nodeName, role, status, term, logIndex, onToggle }) {
           </span>
         </div>
       </div>
+
+      {onViewDetails && (
+        <span className="mt-4 -mb-1 flex items-center justify-between w-full text-[10px] font-extrabold uppercase tracking-wider text-indigo-400 group-hover:text-indigo-300 transition-colors">
+          <span>View Details</span><ChevronRight size={14} />
+        </span>
+      )}
 
     </div>
   );

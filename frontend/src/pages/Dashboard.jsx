@@ -376,7 +376,6 @@ function Dashboard({
                   status={node.status}
                   term={node.term}
                   logIndex={node.logIndex}
-                  onToggle={onToggleNode}
                 />
               ))}
             </div>
