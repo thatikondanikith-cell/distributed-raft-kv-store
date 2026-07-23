@@ -24,14 +24,30 @@ const COORDS = {
 
 function NetworkTopologySVG({ nodes, writingState }) {
   const leaderNode = nodes.find(n => n.role === "Leader" && n.status === "Online");
-  const activeFollowers = nodes.filter(n => n.role === "Follower" && n.status === "Online");
+  
+  // Only followers that are online and NOT partitioned from the leader
+  const activeFollowers = nodes.filter(n => {
+    if (n.role !== "Follower" || n.status !== "Online") return false;
+    if (!leaderNode) return false;
+    const partitioned = leaderNode.communicationMap?.[`Node-${n.id}`] === false ||
+                        n.communicationMap?.[`Node-${leaderNode.id}`] === false;
+    return !partitioned;
+  });
 
-  // Determine path link styles based on status
+  // Determine path link styles based on status and network partitions
   const getLinkStyle = (nodeAId, nodeBId) => {
-    const aOnline = nodes.find(n => n.id === nodeAId)?.status === "Online";
-    const bOnline = nodes.find(n => n.id === nodeBId)?.status === "Online";
-    return aOnline && bOnline
+    const nodeAObj = nodes.find(n => n.id === nodeAId);
+    const nodeBObj = nodes.find(n => n.id === nodeBId);
+    const aOnline = nodeAObj?.status === "Online";
+    const bOnline = nodeBObj?.status === "Online";
+
+    const partitioned = nodeAObj?.communicationMap?.[`Node-${nodeBId}`] === false ||
+                        nodeBObj?.communicationMap?.[`Node-${nodeAId}`] === false;
+
+    return aOnline && bOnline && !partitioned
       ? { stroke: "rgba(99, 102, 241, 0.35)", strokeWidth: 1.5, className: "network-link-active" }
+      : partitioned
+      ? { stroke: "rgba(244, 63, 94, 0.35)", strokeWidth: 1.5, strokeDasharray: "3 3" }
       : { stroke: "rgba(75, 85, 99, 0.15)", strokeWidth: 1, strokeDasharray: "4 4" };
   };
 
@@ -218,6 +234,7 @@ function Dashboard({
   const leaderNode = nodes.find((n) => n.role === "Leader" && n.status === "Online");
   const maxIndex = Math.max(...nodes.map((n) => n.logIndex));
   const maxTerm = Math.max(...nodes.map((n) => n.term));
+  const username = localStorage.getItem("raft_username") || "User";
 
   let clusterHealth = "Healthy";
   if (activeNodesCount === 2) {
@@ -328,8 +345,11 @@ function Dashboard({
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-6 border-b border-white/[0.03]">
         <div>
-          <h1 className="text-2xl font-extrabold text-slate-100 tracking-tight">
+          <h1 className="text-2xl font-extrabold text-slate-100 tracking-tight flex items-center gap-3 flex-wrap">
             Cluster Console
+            <span className="text-xs font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-0.5 rounded-full shadow-[0_0_15px_rgba(99,102,241,0.05)]">
+              Welcome, {username}!
+            </span>
           </h1>
           <p className="mt-1 text-xs text-slate-500">
             Real-time telemetry and consensus simulation for the distributed Raft key-value store.

@@ -20,7 +20,7 @@ function Sidebar({ clusterHealth = "Healthy", currentPage = "Dashboard", onPageC
     {
       title: "Consensus Control",
       items: [
-        { name: "Data Operations", icon: <Database size={15} />, active: currentPage === "Data Operations" },
+        { name: "Data Operations",    icon: <Database size={15} />,      active: currentPage === "Data Operations" },
         { name: "Failure Simulation", icon: <AlertTriangle size={15} />, active: currentPage === "Failure Simulation" },
       ]
     },
@@ -40,7 +40,7 @@ function Sidebar({ clusterHealth = "Healthy", currentPage = "Dashboard", onPageC
   const status = healthIndicators[clusterHealth] || healthIndicators.Healthy;
 
   return (
-    <aside className="hidden md:flex w-60 h-full bg-[#070912] border-r border-white/[0.02] p-5 flex-col justify-between select-none">
+    <aside className="hidden md:flex w-60 h-full bg-theme-sidebar border-r border-theme p-5 flex-col justify-between select-none transition-colors duration-200">
       
       {/* Menu Categories */}
       <div className="flex flex-col gap-6">
@@ -62,8 +62,8 @@ function Sidebar({ clusterHealth = "Healthy", currentPage = "Dashboard", onPageC
                   onClick={() => onPageChange && onPageChange(item.name)}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer text-xs font-semibold transition-all duration-200 relative group ${
                     item.active
-                      ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/15 shadow-[0_0_20px_rgba(99,102,241,0.05)]"
-                      : "hover:bg-white/[0.02] hover:text-slate-200 text-slate-400 border border-transparent"
+                      ? "bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 border border-indigo-500/15 dark:border-indigo-500/15 shadow-[0_0_20px_rgba(99,102,241,0.05)]"
+                      : "hover:bg-indigo-500/5 dark:hover:bg-white/[0.02] hover:text-theme-primary text-theme-secondary border border-transparent"
                   }`}
                 >
                   {/* Left indicator line */}
@@ -85,7 +85,7 @@ function Sidebar({ clusterHealth = "Healthy", currentPage = "Dashboard", onPageC
       </div>
 
       {/* Footer monitor status widget */}
-      <div className="bg-[#0c0d16] border border-white/[0.02] p-4 rounded-2xl flex flex-col gap-2.5">
+      <div className="bg-theme-surface border border-theme p-4 rounded-2xl flex flex-col gap-2.5 transition-colors duration-200">
         <div className="flex items-center gap-2">
           <span className="flex h-1.5 w-1.5 relative">
             <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${status.dot} opacity-75`}></span>

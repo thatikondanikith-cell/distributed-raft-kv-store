@@ -4,6 +4,7 @@ import KeyValueTable from "../components/keyValueStore/KeyValueTable";
 import KeyDetailsDrawer from "../components/keyValueStore/KeyDetailsDrawer";
 import EmptyState from "../components/keyValueStore/EmptyState";
 import Pagination from "../components/keyValueStore/Pagination";
+import { listKeyValues } from "../services/api";
 
 const INITIAL_MOCK_KEYS = [
   {
@@ -199,8 +200,10 @@ const getItemsPerPage = () => {
   return Math.max(5, Math.min(9, Math.floor((window.innerHeight - 330) / 76)));
 };
 
-function KeyValueStore() {
-  const [dbKeys, setDbKeys] = useState(INITIAL_MOCK_KEYS);
+function KeyValueStore({ nodes = [] }) {
+  const [dbKeys, setDbKeys] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
   const [currentPage, setCurrentPage] = useState(1);
@@ -208,6 +211,57 @@ function KeyValueStore() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [itemsPerPage, setItemsPerPage] = useState(getItemsPerPage);
+
+  // Build the replication map from real node data (which nodes are online)
+  const replicationMap = Object.fromEntries(
+    nodes.map(n => [n.nodeName, n.status === "Online"])
+  );
+
+  const fetchData = async (currentReplication) => {
+    try {
+      const data = await listKeyValues();
+      // map backend keys to the frontend layout format
+      // leader is frozen at write-time from the backend (bk.writtenByLeader)
+      const mapped = data.map((bk, idx) => ({
+        key: bk.key,
+        value: bk.value,
+        version: "v1",
+        leader: bk.writtenByLeader || "Unknown",
+        ttl: "Permanent",
+        ttlType: "permanent",
+        lastUpdated: new Date().toLocaleTimeString(),
+        createdAt: new Date().toLocaleTimeString(),
+        logIndex: idx + 1,
+        replication: currentReplication,
+        history: [
+          { version: "v1", logIndex: idx + 1, op: `SET ${bk.key} = ${bk.value}`, time: new Date().toLocaleTimeString(), value: bk.value }
+        ]
+      }));
+      setDbKeys(mapped);
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial fetch on mount
+  useEffect(() => {
+    fetchData(replicationMap);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When nodes change (e.g. a node crashes), update only the replication map.
+  // We intentionally do NOT touch the leader column — it is frozen at write-time.
+  useEffect(() => {
+    if (nodes.length === 0) return;
+    setDbKeys(prev =>
+      prev.map(row => ({
+        ...row,
+        replication: replicationMap,
+      }))
+    );
+  }, [JSON.stringify(replicationMap)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const updatePageSize = () => setItemsPerPage(getItemsPerPage());
@@ -299,18 +353,16 @@ function KeyValueStore() {
     setDrawerOpen(false);
   };
 
-  // Simulates refreshing database state from cluster leader
-  const handleRefresh = () => {
+  // Fetches latest state from backend
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    setTimeout(() => {
-      // Restore initial database keys (resets expired/ticking items for demo convenience)
-      setDbKeys(INITIAL_MOCK_KEYS.map(k => ({
-        ...k,
-        // Make copies of deep nested history arrays to avoid reference mutations
-        history: [...k.history]
-      })));
+    try {
+      await fetchData(replicationMap);
+    } catch (err) {
+      console.error(err);
+    } finally {
       setIsRefreshing(false);
-    }, 800);
+    }
   };
 
   return (
@@ -343,8 +395,13 @@ function KeyValueStore() {
       />
 
       {/* 3. Main Data Container */}
-      <div className="flex flex-1 min-h-[440px] flex-col">
-        {filteredKeys.length === 0 ? (
+      <div className="flex flex-1 min-h-[440px] flex-col justify-center">
+        {loading ? (
+          <div className="flex flex-col items-center justify-center min-h-[300px] text-theme-muted">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mb-4" />
+            <p className="text-sm font-semibold uppercase tracking-wider">Loading database state...</p>
+          </div>
+        ) : filteredKeys.length === 0 ? (
           <EmptyState searchQuery={searchQuery} activeFilter={activeFilter} />
         ) : (
           <div className="glass-card flex flex-1 min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.04] shadow-[0_12px_36px_rgba(0,0,0,0.32)]">

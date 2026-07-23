@@ -3,7 +3,7 @@ import OperationSelector from "../components/dataOperations/OperationSelector";
 import OperationForm from "../components/dataOperations/OperationForm";
 import ResponseCard from "../components/dataOperations/ResponseCard";
 import RecentOperations from "../components/dataOperations/RecentOperations";
-import { mockPut, mockGet, mockDelete } from "../services/mockKvService";
+import { putKeyValue, getKeyValue, deleteKeyValue } from "../services/api";
 
 function DataOperations() {
   const [selectedOperation, setSelectedOperation] = useState("PUT");
@@ -33,46 +33,51 @@ function DataOperations() {
     let result;
     try {
       if (selectedOperation === "PUT") {
-        result = await mockPut(key, value);
+        await putKeyValue(key, value);
+        result = {
+          status: "SUCCESS",
+          statusCode: 200,
+          message: `Success: Key "${key}" successfully replicated and written via Raft consensus.`,
+          key,
+          value,
+        };
       } else if (selectedOperation === "GET") {
-        result = await mockGet(key);
+        const res = await getKeyValue(key);
+        result = res.found
+          ? { status: "SUCCESS", statusCode: 200, message: `Success: Key "${key}" found in store.`, key, value: res.value }
+          : { status: "FAILURE", statusCode: 404, message: `Error: Key "${key}" does not exist.`, key, value: null };
       } else if (selectedOperation === "DELETE") {
-        result = await mockDelete(key);
+        const text = await deleteKeyValue(key);
+        result = {
+          status: "SUCCESS",
+          statusCode: 200,
+          message: text || `Success: Key "${key}" successfully scheduled for deletion via Raft.`,
+          key,
+          value: null,
+        };
       }
-      
+
       setResponse(result);
 
       // Add to recent operations history table
       setRecentOperations((prev) => [
-        {
-          operation: selectedOperation,
-          key: key,
-          status: result.status,
-          time: "Just now",
-        },
+        { operation: selectedOperation, key, status: result.status, time: "Just now" },
         ...prev,
       ].slice(0, 5));
 
-      // Reset value field only for GET/DELETE or on success to make it convenient
-      if (selectedOperation !== "PUT") {
-        setValue("");
-      }
+      if (selectedOperation !== "PUT") setValue("");
+
     } catch (err) {
       const errorResult = {
         status: "FAILURE",
-        statusCode: 500,
-        message: `Error: Internal mock error - ${err.message}`,
+        statusCode: 503,
+        message: `Error: Backend unreachable — ${err.message}. Make sure the Spring Boot server is running.`,
         key,
         value: null,
       };
       setResponse(errorResult);
       setRecentOperations((prev) => [
-        {
-          operation: selectedOperation,
-          key: key,
-          status: "FAILURE",
-          time: "Just now",
-        },
+        { operation: selectedOperation, key, status: "FAILURE", time: "Just now" },
         ...prev,
       ].slice(0, 5));
     } finally {

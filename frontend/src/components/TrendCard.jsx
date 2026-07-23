@@ -30,25 +30,14 @@ function TrendCard({ title = "Log Growth", data = [] }) {
       </div>
 
       {/* SVG Chart */}
-      <div className="flex-1 flex items-center min-h-[90px] py-2">
+      <div className="w-full h-[90px] py-2 flex items-center">
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="line-grad" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#6366f1" />
-              <stop offset="100%" stopColor="#a855f7" />
-            </linearGradient>
-            <linearGradient id="area-grad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#6366f1" stopOpacity="0.15" />
-              <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-
-          <polygon points={areaPoints} fill="url(#area-grad)" />
+          <polygon points={areaPoints} fill="rgba(99, 102, 241, 0.08)" />
 
           <polyline
             points={points}
             fill="none"
-            stroke="url(#line-grad)"
+            stroke="#6366f1"
             strokeWidth="2.5"
             strokeLinecap="round"
             strokeLinejoin="round"
