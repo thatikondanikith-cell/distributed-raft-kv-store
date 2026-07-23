@@ -37,7 +37,8 @@ public class StateMachineService {
 
         KeyValue keyValue = new KeyValue(
                 logEntry.getKey(),
-                logEntry.getValue()
+                logEntry.getValue(),
+                logEntry.getLeaderName()
         );
 
         repository.save(keyValue);

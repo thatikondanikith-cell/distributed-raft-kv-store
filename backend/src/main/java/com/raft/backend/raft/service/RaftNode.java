@@ -34,6 +34,8 @@ public class RaftNode {
 
     private boolean online = true;
 
+    private int health = 100;
+
     // =========================================================
     // ADAPTIVE ELECTION TIMEOUT - EWMA based self-tuning
     // Tracks heartbeat inter-arrival time and jitter so each
@@ -179,6 +181,8 @@ public class RaftNode {
 
             log.debug("[AdaptiveTimeout] {} | interval={}ms avgInterval={:.0f}ms jitter={:.0f}ms",
                 nodeId, interval, avgInterval, jitter);
+
+            com.raft.backend.raft.util.AdaptiveTimeoutLogger.logHeartbeat(nodeId, interval, avgInterval, jitter);
         }
 
         lastHeartbeatArrivalTime = now;
@@ -201,6 +205,8 @@ public class RaftNode {
         electionTimeout = ThreadLocalRandom.current().nextLong(base, base + 2001);
 
         log.debug("[AdaptiveTimeout] {} | new electionTimeout={}ms", nodeId, electionTimeout);
+
+        com.raft.backend.raft.util.AdaptiveTimeoutLogger.logTimeoutReset(nodeId, base, electionTimeout);
     }
 
     public boolean isOnline() {
@@ -336,5 +342,13 @@ public class RaftNode {
 
     public void setMatchIndex(Map<String, Integer> matchIndex) {
         this.matchIndex = matchIndex;
+    }
+
+    public int getHealth() {
+        return health;
+    }
+
+    public void setHealth(int health) {
+        this.health = health;
     }
 }

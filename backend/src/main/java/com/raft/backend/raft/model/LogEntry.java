@@ -8,6 +8,8 @@ public class LogEntry {
 
     private String value;
 
+    private String leaderName;
+
     public LogEntry() {
     }
 
@@ -15,6 +17,13 @@ public class LogEntry {
         this.term = term;
         this.key = key;
         this.value = value;
+    }
+
+    public LogEntry(int term, String key, String value, String leaderName) {
+        this.term = term;
+        this.key = key;
+        this.value = value;
+        this.leaderName = leaderName;
     }
 
     public int getTerm() {
@@ -40,4 +49,12 @@ public class LogEntry {
     public void setValue(String value) {
         this.value = value;
     }
-}
+
+    public String getLeaderName() {
+        return leaderName;
+    }
+
+    public void setLeaderName(String leaderName) {
+        this.leaderName = leaderName;
+    }
+}

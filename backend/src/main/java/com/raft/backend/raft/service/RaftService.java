@@ -49,7 +49,37 @@ public class RaftService {
         leaderNode = node1;
     }
 
+    public void updateNodeHealths() {
+        for (RaftNode node : cluster.getNodes()) {
+            if (!node.isOnline()) {
+                node.setHealth(0);
+                continue;
+            }
+
+            int communicableNodes = 0;
+            int otherNodesCount = 0;
+
+            for (RaftNode other : cluster.getNodes()) {
+                if (other == node) {
+                    continue;
+                }
+                otherNodesCount++;
+                if (other.isOnline() && node.canCommunicateWith(other.getNodeId()) && other.canCommunicateWith(node.getNodeId())) {
+                    communicableNodes++;
+                }
+            }
+
+            if (otherNodesCount == 0) {
+                node.setHealth(100);
+            } else {
+                double communicationRatio = (double) communicableNodes / otherNodesCount;
+                node.setHealth((int) (20 + 80 * communicationRatio));
+            }
+        }
+    }
+
     public RaftCluster getCluster() {
+        updateNodeHealths();
         return cluster;
     }
 
