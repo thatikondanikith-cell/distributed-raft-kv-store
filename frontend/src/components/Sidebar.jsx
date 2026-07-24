@@ -5,6 +5,7 @@ import {
   ScrollText,
   Server,
   AlertTriangle,
+  BookOpen,
 } from "lucide-react";
 
 function Sidebar({ clusterHealth = "Healthy", currentPage = "Dashboard", onPageChange }) {
@@ -21,6 +22,7 @@ function Sidebar({ clusterHealth = "Healthy", currentPage = "Dashboard", onPageC
       title: "Consensus Control",
       items: [
         { name: "Data Operations",    icon: <Database size={15} />,      active: currentPage === "Data Operations" },
+        { name: "Raft Playbook",       icon: <BookOpen size={15} />,      active: currentPage === "Raft Playbook" },
         { name: "Failure Simulation", icon: <AlertTriangle size={15} />, active: currentPage === "Failure Simulation" },
       ]
     },

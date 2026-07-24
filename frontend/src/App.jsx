@@ -6,6 +6,7 @@ import KeyValueStore from "./pages/KeyValueStore";
 import Nodes from "./pages/Nodes";
 import NodeDetails from "./pages/NodeDetails";
 import FailureSimulation from "./pages/FailureSimulation";
+import ConsensusPlaybook from "./pages/ConsensusPlaybook";
 import Login from "./pages/Login";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { fetchCluster, toggleNodeOnline, triggerElection, putKeyValue } from "./services/api";
@@ -54,6 +55,7 @@ function AppContent({ onLogout }) {
   const currentPage =
     location.pathname.startsWith("/nodes")            ? "Nodes" :
     location.pathname === "/data-operations"          ? "Data Operations" :
+    location.pathname === "/raft-playbook"            ? "Raft Playbook" :
     location.pathname === "/key-value-store"          ? "Key-Value Store" :
     location.pathname === "/failure-simulation"       ? "Failure Simulation" :
                                                         "Dashboard";
@@ -63,6 +65,7 @@ function AppContent({ onLogout }) {
       Dashboard:            "/",
       Nodes:                "/nodes",
       "Data Operations":    "/data-operations",
+      "Raft Playbook":       "/raft-playbook",
       "Key-Value Store":    "/key-value-store",
       "Failure Simulation": "/failure-simulation",
     };
@@ -208,6 +211,7 @@ function AppContent({ onLogout }) {
         <Route path="/nodes"               element={<Nodes nodes={nodes} onToggleNode={handleToggleNode} />} />
         <Route path="/nodes/:id"           element={<NodeDetails nodes={nodes} />} />
         <Route path="/data-operations"     element={<DataOperations />} />
+        <Route path="/raft-playbook"       element={<ConsensusPlaybook />} />
         <Route path="/key-value-store"     element={<KeyValueStore nodes={nodes} />} />
         <Route path="/failure-simulation"  element={<FailureSimulation nodes={nodes} onActivity={logActivity} />} />
         <Route path="*"                    element={<Navigate to="/" replace />} />
