@@ -1,5 +1,6 @@
 package com.raft.backend.service;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import org.springframework.stereotype.Service;
@@ -38,7 +39,8 @@ public class StateMachineService {
         KeyValue keyValue = new KeyValue(
                 logEntry.getKey(),
                 logEntry.getValue(),
-                logEntry.getLeaderName()
+                logEntry.getLeaderName(),
+                Instant.now()
         );
 
         repository.save(keyValue);

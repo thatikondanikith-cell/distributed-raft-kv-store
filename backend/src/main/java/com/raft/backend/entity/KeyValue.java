@@ -1,5 +1,7 @@
 package com.raft.backend.entity;
 
+import java.time.Instant;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -19,6 +21,9 @@ public class KeyValue {
     @Column(name = "written_by_leader")
     private String writtenByLeader;
 
+    @Column(name = "committed_at")
+    private Instant committedAt;
+
     public KeyValue() {
     }
 
@@ -31,6 +36,11 @@ public class KeyValue {
         this.key = key;
         this.value = value;
         this.writtenByLeader = writtenByLeader;
+    }
+
+    public KeyValue(String key, String value, String writtenByLeader, Instant committedAt) {
+        this(key, value, writtenByLeader);
+        this.committedAt = committedAt;
     }
 
     public String getKey() {
@@ -56,4 +66,12 @@ public class KeyValue {
     public void setWrittenByLeader(String writtenByLeader) {
         this.writtenByLeader = writtenByLeader;
     }
-}
+
+    public Instant getCommittedAt() {
+        return committedAt;
+    }
+
+    public void setCommittedAt(Instant committedAt) {
+        this.committedAt = committedAt;
+    }
+}

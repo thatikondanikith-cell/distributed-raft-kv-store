@@ -45,7 +45,12 @@ public class KeyValueService {
         for (KeyValue kv : all) {
             if (kv.getKey() != null && kv.getKey().startsWith(prefix)) {
                 String cleanKey = kv.getKey().substring(prefix.length());
-                KeyValue clean = new KeyValue(cleanKey, kv.getValue(), kv.getWrittenByLeader());
+                KeyValue clean = new KeyValue(
+                        cleanKey,
+                        kv.getValue(),
+                        kv.getWrittenByLeader(),
+                        kv.getCommittedAt()
+                );
                 userKeys.add(clean);
             }
         }

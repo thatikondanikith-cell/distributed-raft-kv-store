@@ -200,6 +200,15 @@ const getItemsPerPage = () => {
   return Math.max(5, Math.min(9, Math.floor((window.innerHeight - 330) / 76)));
 };
 
+const formatCommittedTime = (committedAt) => {
+  if (!committedAt) return "—";
+
+  const timestamp = new Date(committedAt);
+  if (Number.isNaN(timestamp.getTime())) return "—";
+
+  return timestamp.toLocaleTimeString([], { hour12: false });
+};
+
 function KeyValueStore({ nodes = [] }) {
   const [dbKeys, setDbKeys] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -229,12 +238,12 @@ function KeyValueStore({ nodes = [] }) {
         leader: bk.writtenByLeader || "Unknown",
         ttl: "Permanent",
         ttlType: "permanent",
-        lastUpdated: new Date().toLocaleTimeString(),
-        createdAt: new Date().toLocaleTimeString(),
+        lastUpdated: formatCommittedTime(bk.committedAt),
+        createdAt: formatCommittedTime(bk.committedAt),
         logIndex: idx + 1,
         replication: currentReplication,
         history: [
-          { version: "v1", logIndex: idx + 1, op: `SET ${bk.key} = ${bk.value}`, time: new Date().toLocaleTimeString(), value: bk.value }
+          { version: "v1", logIndex: idx + 1, op: `SET ${bk.key} = ${bk.value}`, time: formatCommittedTime(bk.committedAt), value: bk.value }
         ]
       }));
       setDbKeys(mapped);
