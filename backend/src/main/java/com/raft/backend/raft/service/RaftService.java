@@ -680,16 +680,10 @@ public class RaftService {
 
                     System.out.println(
                             node.getNodeId()
-                                    + " election failed. Returning to FOLLOWER."
+                                    + " election timeout. Starting new election."
                     );
 
-                    node.setCurrentState(NodeState.FOLLOWER);
-
-                    node.setVotedFor(null);
-
-                    node.resetElectionTimeout();
-
-                    node.setLastHeartbeatTime(currentTime);
+                    startElection(node);
                 }
             }
         }
@@ -818,6 +812,7 @@ public class RaftService {
         }
 
         candidate.resetElectionTimeout();
+        candidate.setLastHeartbeatTime(System.currentTimeMillis());
 
         candidate.setCurrentTerm(candidate.getCurrentTerm() + 1);
 
