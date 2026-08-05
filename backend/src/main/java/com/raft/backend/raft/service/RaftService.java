@@ -132,6 +132,8 @@ public class RaftService {
 
             follower.setVotedFor(null);
 
+            follower.setVotesReceived(0);
+
             System.out.println(
                     follower.getNodeId()
                             + " updated to higher term "
@@ -221,19 +223,21 @@ public class RaftService {
             }
         }
 
+        follower.setCurrentState(NodeState.FOLLOWER);
+
         follower.setLastHeartbeatTime(System.currentTimeMillis());
 
-        // Update EWMA stats BEFORE resetting the adaptive timeout
         follower.recordHeartbeatArrival();
 
         follower.resetElectionTimeout();
 
-        follower.setCurrentState(NodeState.FOLLOWER);
-
+        follower.setVotesReceived(0);
         System.out.println(
                 "AppendEntries Accepted by "
                         + follower.getNodeId()
         );
+
+        
 
         return new AppendEntriesResponse(
                 follower.getCurrentTerm(),
@@ -558,8 +562,15 @@ public class RaftService {
                 node.setCommitIndex(leaderNode.getLastIncludedIndex());
                 leaderNode.getMatchIndex().put(node.getNodeId(), leaderNode.getLastLogIndex());
                 leaderNode.getNextIndex().put(node.getNodeId(), leaderNode.getLogEntriesSize());
+                node.setCurrentState(NodeState.FOLLOWER);
+
                 node.setLastHeartbeatTime(currentTime);
+
+                node.recordHeartbeatArrival();
+
                 node.resetElectionTimeout();
+
+                node.setVotesReceived(0);
                 continue;
             }
 
@@ -597,10 +608,11 @@ public class RaftService {
 
                 leaderNode.setCurrentState(NodeState.FOLLOWER);
 
+                leaderNode.setVotesReceived(0);
+
                 leaderNode.setVotedFor(null);
 
                 leaderAlive = false;
-
                 return;
             }
 
@@ -614,10 +626,6 @@ public class RaftService {
                         node.getNodeId(),
                         leaderNode.getLogEntriesSize());
 
-                node.setLastHeartbeatTime(currentTime);
-
-                node.resetElectionTimeout();
-
                 System.out.println(
                         "❤️ "
                                 + node.getNodeId()
@@ -626,12 +634,15 @@ public class RaftService {
 
             else {
 
-                System.out.println(
+                if (leaderAlive) {
+
+                    System.out.println(
                         node.getNodeId()
                         + " is behind. Starting catch-up..."
-                );
+                    );
+                    replicateToFollower(node);
 
-                replicateToFollower(node);
+                }
             }
         }
     }
@@ -654,7 +665,6 @@ public class RaftService {
                 continue;
             }
 
-            // Followers
             if (node.getCurrentState() == NodeState.FOLLOWER) {
 
                 long elapsed =
@@ -670,7 +680,6 @@ public class RaftService {
                 }
             }
 
-            // Candidates that lost election
             else if (node.getCurrentState() == NodeState.CANDIDATE) {
 
                 long elapsed =
@@ -718,6 +727,8 @@ public class RaftService {
             follower.setCurrentState(NodeState.FOLLOWER);
 
             follower.setVotedFor(null);
+
+            follower.setVotesReceived(0);
 
             System.out.println(
                     follower.getNodeId()
@@ -783,8 +794,9 @@ public class RaftService {
 
             follower.setLastHeartbeatTime(System.currentTimeMillis());
 
-            follower.resetElectionTimeout();
+            follower.recordHeartbeatArrival();
 
+            follower.resetElectionTimeout();
             System.out.println(
                     follower.getNodeId()
                             + " voted for "
@@ -821,6 +833,10 @@ public class RaftService {
         candidate.setVotesReceived(1);
 
         candidate.setVotedFor(candidate.getNodeId());
+
+        // Reset leader-specific state
+        candidate.getNextIndex().clear();
+        candidate.getMatchIndex().clear();
 
         System.out.println(candidate.getNodeId() + " became CANDIDATE");
         System.out.println(candidate.getNodeId() + " voted for itself");
@@ -887,16 +903,13 @@ public class RaftService {
                             + " becomes NEW LEADER"
             );
 
-            for (RaftNode node : cluster.getNodes()) {
+            candidate.setVotesReceived(0);
 
-                node.setCurrentState(NodeState.FOLLOWER);
-
-                node.setVotesReceived(0);
-
-                node.resetElectionTimeout();
-            }
+            candidate.resetElectionTimeout();
 
             candidate.setCurrentState(NodeState.LEADER);
+
+            candidate.setLastHeartbeatTime(System.currentTimeMillis());
 
             candidate.getNextIndex().clear();
 
